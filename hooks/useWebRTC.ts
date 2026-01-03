@@ -34,22 +34,25 @@ export function useWebRTC({
     const translationEnabledRef = useRef(isTranslationEnabled);
     useEffect(() => { translationEnabledRef.current = isTranslationEnabled; }, [isTranslationEnabled]);
 
-    const sendWS = (type: string, payload?: any) => {
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify({ type, payload }));
+    const sendWS = useCallback((type: string, payload?: any) => {
+        const ws = wsRef.current;
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type, payload }));
         }
-    };
+    }, []);
 
-    const flushQueue = () => {
-        if (dcRef.current?.readyState === 'open') {
-            messageQueue.current.forEach(m => dcRef.current?.send(JSON.stringify({ type: 'chat', payload: m })));
+    const flushQueue = useCallback(() => {
+        const dc = dcRef.current;
+        if (dc && dc.readyState === 'open') {
+            messageQueue.current.forEach(m => dc.send(JSON.stringify({ type: 'chat', payload: m })));
             messageQueue.current = [];
         }
-    };
+    }, []);
 
-    const setupDC = (dc: RTCDataChannel) => {
+    const setupDC = useCallback((dc: RTCDataChannel) => {
         dc.onopen = () => { 
             onLog('webrtc', 'DataChannel established'); 
+            dcRef.current = dc;
             flushQueue(); 
         };
         dc.onmessage = (e) => {
@@ -65,10 +68,14 @@ export function useWebRTC({
                 onLog('webrtc', `DC Message Error: ${err}`);
             }
         };
+        dc.onclose = () => {
+            onLog('webrtc', 'DataChannel closed');
+            dcRef.current = null;
+        };
         dcRef.current = dc;
-    };
+    }, [onLog, onMessage, onRemoteTyping, sendWS, flushQueue]);
 
-    const createPC = () => {
+    const createPC = useCallback(() => {
         const pc = new RTCPeerConnection({ 
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
@@ -87,6 +94,8 @@ export function useWebRTC({
             if (pc.connectionState === 'connected') {
                 statusRef.current = 'connected';
                 onStatusChange('connected');
+            } else if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+                onRemoteStream(null);
             }
         };
         
@@ -96,7 +105,7 @@ export function useWebRTC({
         
         pcRef.current = pc;
         return pc;
-    };
+    }, [onLog, onRemoteStream, onStatusChange, sendWS]);
 
     const connectWS = useCallback(() => {
         if (wsRef.current) {
@@ -104,13 +113,11 @@ export function useWebRTC({
             wsRef.current = null;
         }
 
+        // Fix: Use origin for WebSocket URL to ensure compatibility with proxied environments
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        // Construct clean URL for the WebSocket
-        const host = window.location.host;
-        const path = window.location.pathname.replace(/\/$/, '');
-        const wsUrl = `${protocol}//${host}${path}`;
+        const wsUrl = `${protocol}//${window.location.host}/`;
         
-        onLog('ws', `Connecting to: ${wsUrl}`);
+        onLog('ws', `Connecting to signaling server...`);
         statusRef.current = 'connecting-ws';
         onStatusChange('connecting-ws');
 
@@ -118,7 +125,7 @@ export function useWebRTC({
             const ws = new WebSocket(wsUrl);
             
             ws.onopen = () => { 
-                onLog('ws', 'Connected successfully.'); 
+                onLog('ws', 'Server connected.'); 
                 statusRef.current = 'idle';
                 onStatusChange('idle'); 
                 retryCountRef.current = 0;
@@ -133,7 +140,7 @@ export function useWebRTC({
                         onStatusChange('waiting'); 
                         break;
                     case 'paired':
-                        onLog('ws', 'Matched with peer!');
+                        onLog('ws', 'Pair found!');
                         statusRef.current = 'pairing';
                         onStatusChange('pairing');
                         const pc = createPC();
@@ -168,7 +175,7 @@ export function useWebRTC({
                         }
                         break;
                     case 'peer-left':
-                        onLog('ws', 'Peer left.');
+                        onLog('ws', 'Peer disconnected.');
                         statusRef.current = 'peer-left';
                         onStatusChange('peer-left');
                         onRemoteStream(null);
@@ -181,18 +188,19 @@ export function useWebRTC({
                 }
             };
             
-            ws.onerror = (err) => {
+            ws.onerror = () => {
                 onLog('ws', 'WebSocket connection error.');
             };
             
             ws.onclose = (event) => {
-                onLog('ws', `Closed (Code: ${event.code})`);
+                onLog('ws', `WebSocket closed (Code: ${event.code})`);
+                wsRef.current = null;
                 if (statusRef.current !== 'idle' && statusRef.current !== 'peer-left') {
                     statusRef.current = 'error-ws';
                     onStatusChange('error-ws');
                 }
                 
-                const delay = Math.min(1000 * Math.pow(2, retryCountRef.current), 10000);
+                const delay = Math.min(1000 * Math.pow(2, retryCountRef.current), 5000);
                 retryCountRef.current++;
                 reconnectTimeoutRef.current = window.setTimeout(connectWS, delay);
             };
@@ -201,7 +209,7 @@ export function useWebRTC({
         } catch (e) {
             onLog('ws', `WS Exception: ${e}`);
         }
-    }, [onStatusChange, onLog, onUserCountChange, onTranslationResult, onIcebreakerResult]);
+    }, [onStatusChange, onLog, onUserCountChange, onTranslationResult, onIcebreakerResult, createPC, setupDC, sendWS]);
 
     useEffect(() => { 
         connectWS(); 
@@ -215,6 +223,12 @@ export function useWebRTC({
         connect: connectWS,
         start: async (interests: string[]) => {
             if (!localStreamRef.current) {
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    onLog('webrtc', 'getUserMedia not supported in this browser.');
+                    onPermissionError();
+                    return;
+                }
+                
                 statusRef.current = 'getting-media';
                 onStatusChange('getting-media');
                 try {
@@ -225,6 +239,7 @@ export function useWebRTC({
                     localStreamRef.current = s;
                     onLocalStream(s);
                 } catch (e) { 
+                    onLog('webrtc', `Media Error: ${e}`);
                     statusRef.current = 'error-media';
                     onPermissionError(); 
                     return; 
@@ -245,17 +260,19 @@ export function useWebRTC({
         },
         sendMessage: (text: string) => {
             const ts = Date.now();
-            const isOpen = dcRef.current?.readyState === 'open';
+            const dc = dcRef.current;
+            const isOpen = dc && dc.readyState === 'open';
             onMessage({ sender: 'local', text, timestamp: ts, status: isOpen ? 'sent' : 'queued' });
             if (isOpen) {
-                dcRef.current?.send(JSON.stringify({ type: 'chat', payload: { text, timestamp: ts } }));
+                dc.send(JSON.stringify({ type: 'chat', payload: { text, timestamp: ts } }));
             } else {
                 messageQueue.current.push({ text, timestamp: ts });
             }
         },
         sendTyping: (isTyping: boolean) => {
-            if (dcRef.current?.readyState === 'open') {
-                dcRef.current.send(JSON.stringify({ type: 'typing', payload: { isTyping } }));
+            const dc = dcRef.current;
+            if (dc && dc.readyState === 'open') {
+                dc.send(JSON.stringify({ type: 'typing', payload: { isTyping } }));
             }
         },
         requestIcebreaker: () => sendWS('icebreaker'),
