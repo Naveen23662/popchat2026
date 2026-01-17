@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <title>PopChat — Classic P2P</title>
+    <title>PopChat — Discover & Connect</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -36,33 +36,30 @@
         #root { height: 100vh; width: 100vw; display: flex; flex-direction: column; }
 
         .glass-panel { 
-            background: rgba(13, 13, 14, 0.8); 
+            background: rgba(13, 13, 14, 0.85); 
             border: 1px solid rgba(255, 255, 255, 0.05); 
-            backdrop-filter: blur(20px); 
+            backdrop-filter: blur(25px); 
         }
 
         .video-box {
             width: 500px;
             height: 400px;
             background: #000;
-            border-radius: 1.5rem;
+            border-radius: 2rem;
             overflow: hidden;
             border: 1px solid rgba(255, 255, 255, 0.08);
             position: relative;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+            box-shadow: 0 20px 50px rgba(0,0,0,0.8);
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
         }
         
         .video-box.active {
             border-color: rgba(0, 242, 255, 0.4);
-            box-shadow: 0 0 30px rgba(0, 242, 255, 0.1);
+            transform: scale(1.01);
+            box-shadow: 0 0 40px rgba(0, 242, 255, 0.1);
         }
 
         video { width: 100%; height: 100%; object-fit: cover; }
-
-        .chat-area {
-            scrollbar-width: thin;
-            scrollbar-color: rgba(255,255,255,0.1) transparent;
-        }
 
         .btn-glow {
             background: linear-gradient(135deg, #00f2ff, #00d2ff);
@@ -71,24 +68,39 @@
         .btn-glow:hover {
             filter: brightness(1.2);
             transform: translateY(-2px);
-            box-shadow: 0 8px 20px rgba(0, 242, 255, 0.3);
+            box-shadow: 0 12px 24px rgba(0, 242, 255, 0.3);
         }
 
         .label-tag {
             position: absolute;
             top: 1.5rem;
             left: 1.5rem;
-            padding: 0.4rem 0.8rem;
-            border-radius: 0.75rem;
-            background: rgba(0,0,0,0.6);
+            padding: 0.5rem 1rem;
+            border-radius: 1rem;
+            background: rgba(0,0,0,0.7);
             backdrop-filter: blur(10px);
             font-size: 10px;
-            font-weight: 700;
-            letter-spacing: 0.1em;
+            font-weight: 800;
+            letter-spacing: 0.15em;
             text-transform: uppercase;
             border: 1px solid rgba(255,255,255,0.1);
             z-index: 10;
         }
+
+        .chat-bubble {
+            max-width: 80%;
+            padding: 0.8rem 1.2rem;
+            border-radius: 1.25rem;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .shimmer-bg {
+            background: linear-gradient(90deg, transparent, rgba(0,242,255,0.05), transparent);
+            background-size: 200% 100%;
+            animation: shimmer 3s infinite;
+        }
+        @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
     </style>
 </head>
 <body>
@@ -97,7 +109,6 @@
         import { GoogleGenAI } from "https://esm.sh/@google/genai";
         
         const { useState, useRef, useEffect, useCallback } = React;
-        const SAFE_API_KEY = typeof process !== 'undefined' ? process.env.API_KEY : '';
 
         const App = () => {
             const [isStarted, setIsStarted] = useState(false);
@@ -107,6 +118,8 @@
             const [videoOn, setVideoOn] = useState(true);
             const [isSearching, setIsSearching] = useState(false);
             const [myPeerId, setMyPeerId] = useState('');
+            const [showIdModal, setShowIdModal] = useState(false);
+            const [friendIdInput, setFriendIdInput] = useState('');
             
             const localVideoRef = useRef(null);
             const remoteVideoRef = useRef(null);
@@ -140,6 +153,7 @@
                         if (remoteVideoRef.current) remoteVideoRef.current.srcObject = stream;
                         setStatus('CONNECTED');
                         setIsSearching(false);
+                        setShowIdModal(false);
                     });
                 });
                 peer.on('connection', (conn) => {
@@ -155,27 +169,36 @@
                     localStreamRef.current = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
                     setIsStarted(true);
                     initPeer();
-                } catch (err) { alert("Camera access is required for video chat."); }
+                } catch (err) { alert("Camera & Mic access is required."); }
             };
 
             const findStranger = () => {
                 cleanup();
                 setIsSearching(true);
                 setStatus('SEARCHING...');
+                // Omegle style: we simulate random discovery
                 setTimeout(() => {
-                    if (status !== 'CONNECTED') {
-                        const target = prompt(`MATCHMAKING STATUS:\nNo strangers online.\n\nYOUR PRIVATE ID: ${myPeerId}\n(Share this to reconnect with someone or invite a friend)\n\nOR ENTER ID TO CONNECT:`);
-                        if (target) {
-                            const call = peerRef.current.call(target, localStreamRef.current);
-                            call.on('stream', s => remoteVideoRef.current.srcObject = s);
-                            const conn = peerRef.current.connect(target);
-                            dataConnRef.current = conn;
-                            conn.on('data', d => setMessages(p => [...p, {text: d, own: false}]));
-                            setStatus('CONNECTED');
-                        }
+                    if (status !== 'CONNECTED' && isSearching) {
+                        setIsSearching(false);
+                        setStatus('ONLINE');
+                        setShowIdModal(true); // Open reconnect modal if no random match found immediately
                     }
-                    setIsSearching(false);
-                }, 1500);
+                }, 3000);
+            };
+
+            const connectToFriend = () => {
+                if (!friendIdInput) return;
+                const target = friendIdInput.trim();
+                const call = peerRef.current.call(target, localStreamRef.current);
+                call.on('stream', s => {
+                    remoteVideoRef.current.srcObject = s;
+                    setStatus('CONNECTED');
+                    setShowIdModal(false);
+                });
+                const conn = peerRef.current.connect(target);
+                dataConnRef.current = conn;
+                conn.on('data', d => setMessages(p => [...p, {text: d, own: false}]));
+                conn.on('close', cleanup);
             };
 
             useEffect(() => {
@@ -184,35 +207,52 @@
 
             if (!isStarted) {
                 return React.createElement('div', { className: 'h-full flex items-center justify-center bg-dark-bg p-6' },
-                    React.createElement('div', { className: 'max-w-md w-full glass-panel rounded-[2.5rem] p-10 text-center' },
-                        React.createElement('h1', { className: 'text-5xl font-black italic tracking-tighter mb-4' }, 'POPCHAT'),
-                        React.createElement('div', { className: 'bg-white/5 p-6 rounded-2xl mb-8 text-left space-y-2' },
-                            React.createElement('p', { className: 'text-[11px] font-bold text-cyber-cyan' }, 'SYSTEM READY:'),
-                            React.createElement('p', { className: 'text-[11px] text-white/40' }, '• Anonymous Matching\n• Private P2P Encryption\n• Persistent Friend IDs')
+                    React.createElement('div', { className: 'max-w-md w-full glass-panel rounded-[3rem] p-12 text-center border-white/10 shadow-2xl' },
+                        React.createElement('div', { className: 'w-24 h-24 bg-cyber-cyan/10 rounded-[2rem] mx-auto mb-8 flex items-center justify-center border border-cyber-cyan/20' },
+                            React.createElement('div', { className: 'w-10 h-10 bg-cyber-cyan rounded-full shadow-[0_0_30px_rgba(0,242,255,0.6)]' })
                         ),
-                        React.createElement('button', { onClick: startApp, className: 'w-full py-5 btn-glow text-black font-black rounded-xl text-xs uppercase' }, 'Start Session')
+                        React.createElement('h1', { className: 'text-6xl font-black italic tracking-tighter mb-4' }, 'POPCHAT'),
+                        React.createElement('p', { className: 'text-[10px] uppercase tracking-[0.6em] text-white/20 font-bold mb-10' }, 'Global P2P Network'),
+                        React.createElement('button', { onClick: startApp, className: 'w-full py-6 btn-glow text-black font-black rounded-2xl text-xs uppercase tracking-widest' }, 'Enter Channel')
                     )
                 );
             }
 
-            return React.createElement('div', { className: 'flex flex-col h-full' },
-                React.createElement('header', { className: 'h-16 flex items-center justify-between px-8 border-b border-white/5 bg-black' },
-                    React.createElement('div', { className: 'text-xl font-black italic text-cyber-cyan' }, 'POPCHAT'),
-                    React.createElement('div', { className: 'text-[9px] font-bold tracking-[0.3em] text-white/20 uppercase' }, 'Secure Peer-to-Peer Network')
+            return React.createElement('div', { className: 'flex flex-col h-full bg-dark-bg' },
+                // HEADER
+                React.createElement('header', { className: 'h-20 flex items-center justify-between px-10 border-b border-white/5 bg-black' },
+                    React.createElement('div', { className: 'flex items-center gap-4' },
+                        React.createElement('div', { className: 'w-3 h-3 bg-cyber-cyan rounded-full animate-pulse shadow-[0_0_15px_#00f2ff]' }),
+                        React.createElement('div', { className: 'text-2xl font-black italic tracking-tighter' }, 'POPCHAT')
+                    ),
+                    React.createElement('div', { className: 'flex items-center gap-8' },
+                        React.createElement('div', { className: 'hidden md:flex flex-col items-end' },
+                            React.createElement('span', { className: 'text-[8px] uppercase tracking-widest text-white/30' }, 'Signal Status'),
+                            React.createElement('span', { className: 'text-[11px] font-black text-cyber-cyan' }, status)
+                        ),
+                        React.createElement('div', { className: 'h-10 w-[1px] bg-white/10' }),
+                        React.createElement('button', { onClick: () => setShowIdModal(true), className: 'text-[9px] font-black text-cyber-cyan border border-cyber-cyan/20 px-5 py-2.5 rounded-xl hover:bg-cyber-cyan/10 transition-all uppercase tracking-widest' }, 'Private Reconnect')
+                    )
                 ),
+
                 React.createElement('main', { className: 'flex-1 flex overflow-hidden' },
                     // LEFT COLUMN: CHAT
-                    React.createElement('div', { className: 'w-[320px] glass-panel border-r border-white/5 flex flex-col' },
-                        React.createElement('div', { className: 'p-6 border-b border-white/5 text-[10px] font-black text-white/30 uppercase tracking-widest' }, 'Encrypted Chat'),
-                        React.createElement('div', { ref: scrollRef, className: 'flex-1 p-6 overflow-y-auto space-y-4 chat-area' },
+                    React.createElement('div', { className: 'w-[360px] glass-panel border-r border-white/5 flex flex-col' },
+                        React.createElement('div', { className: 'p-8 border-b border-white/5' },
+                            React.createElement('h3', { className: 'text-[10px] font-black uppercase tracking-[0.4em] text-white/40' }, 'Secure Messenger')
+                        ),
+                        React.createElement('div', { ref: scrollRef, className: 'flex-1 p-8 overflow-y-auto space-y-6' },
+                            messages.length === 0 && React.createElement('div', { className: 'h-full flex flex-col items-center justify-center text-center opacity-10' },
+                                React.createElement('p', { className: 'text-[10px] uppercase tracking-widest' }, 'Channel Secured.\nNo logs stored.')
+                            ),
                             messages.map((m, i) => React.createElement('div', { key: i, className: `flex ${m.own ? 'justify-end' : 'justify-start'}` },
-                                React.createElement('div', { className: `px-4 py-2 rounded-2xl text-[12px] ${m.own ? 'bg-cyber-cyan text-black font-bold' : 'bg-white/5 text-white border border-white/5'}` }, m.text)
+                                React.createElement('div', { className: `chat-bubble ${m.own ? 'bg-cyber-cyan text-black font-black' : 'bg-white/5 text-white border border-white/5'}` }, m.text)
                             ))
                         ),
-                        React.createElement('div', { className: 'p-6' },
+                        React.createElement('div', { className: 'p-8' },
                             React.createElement('input', { 
-                                className: 'w-full bg-white/5 border border-white/10 rounded-xl px-4 py-4 text-xs outline-none focus:border-cyber-cyan/30 transition-all',
-                                placeholder: 'Send message...',
+                                className: 'w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-5 text-xs outline-none focus:border-cyber-cyan/40 transition-all placeholder:text-white/20',
+                                placeholder: 'Write something...',
                                 onKeyDown: (e) => {
                                     if (e.key === 'Enter' && e.target.value.trim() && dataConnRef.current) {
                                         const val = e.target.value; e.target.value = '';
@@ -223,13 +263,15 @@
                             })
                         )
                     ),
-                    // CENTER COLUMN: STACKED VIDEOS
-                    React.createElement('div', { className: 'flex-1 flex flex-col items-center justify-center gap-6 overflow-y-auto py-8' },
+
+                    // CENTER COLUMN: VIDEO STACK (500x400)
+                    React.createElement('div', { className: 'flex-1 flex flex-col items-center justify-center gap-8 overflow-y-auto py-12 px-6 shimmer-bg' },
                         React.createElement('div', { className: `video-box ${status === 'CONNECTED' ? 'active' : ''}` },
                             React.createElement('div', { className: 'label-tag' }, 'Stranger'),
                             React.createElement('video', { ref: remoteVideoRef, autoPlay: true, playsInline: true }),
-                            status !== 'CONNECTED' && React.createElement('div', { className: 'absolute inset-0 bg-dark-card flex items-center justify-center' },
-                                React.createElement('p', { className: 'text-[10px] font-bold text-white/10 uppercase tracking-[0.4em]' }, isSearching ? 'Finding Peer...' : 'Standby')
+                            status !== 'CONNECTED' && React.createElement('div', { className: 'absolute inset-0 bg-[#080808] flex flex-col items-center justify-center' },
+                                isSearching && React.createElement('div', { className: 'w-12 h-12 border-2 border-cyber-cyan/10 border-t-cyber-cyan rounded-full animate-spin mb-4' }),
+                                React.createElement('p', { className: 'text-[11px] font-black text-white/10 uppercase tracking-[0.5em]' }, isSearching ? 'Pinging Peers' : 'Standby Mode')
                             )
                         ),
                         React.createElement('div', { className: 'video-box' },
@@ -237,36 +279,61 @@
                             React.createElement('video', { ref: localVideoRef, autoPlay: true, playsInline: true, muted: true, className: 'scale-x-[-1]' })
                         )
                     ),
+
                     // RIGHT COLUMN: CONTROLS
-                    React.createElement('div', { className: 'w-[300px] glass-panel border-l border-white/5 p-8 flex flex-col gap-6' },
-                        React.createElement('div', { className: 'p-6 rounded-2xl bg-white/5 border border-white/5' },
-                            React.createElement('p', { className: 'text-[9px] font-black text-white/20 uppercase mb-3 tracking-widest' }, 'Network Status'),
-                            React.createElement('div', { className: 'flex items-center gap-2' },
-                                React.createElement('div', { className: `w-2 h-2 rounded-full ${status === 'CONNECTED' ? 'bg-cyber-cyan shadow-[0_0_10px_#00f2ff]' : 'bg-white/20'}` }),
-                                React.createElement('span', { className: 'text-[11px] font-bold text-cyber-cyan' }, status)
+                    React.createElement('div', { className: 'w-[320px] glass-panel border-l border-white/5 p-10 flex flex-col gap-8' },
+                        React.createElement('div', { className: 'space-y-2' },
+                            React.createElement('p', { className: 'text-[10px] font-black text-white/20 uppercase tracking-[0.3em]' }, 'Navigation'),
+                            React.createElement('button', { onClick: findStranger, className: 'w-full py-6 btn-glow text-black font-black rounded-2xl text-[11px] uppercase tracking-widest' }, 
+                                isSearching ? 'Searching...' : 'Match Next'
                             )
                         ),
-                        React.createElement('button', { onClick: findStranger, className: 'w-full py-5 btn-glow text-black font-black rounded-xl text-[10px] uppercase tracking-widest' }, 
-                            isSearching ? 'Matching...' : 'Match Next'
+                        React.createElement('div', { className: 'space-y-4' },
+                            React.createElement('p', { className: 'text-[10px] font-black text-white/20 uppercase tracking-[0.3em]' }, 'Media Controls'),
+                            React.createElement('div', { className: 'grid grid-cols-2 gap-4' },
+                                React.createElement('button', { onClick: () => {
+                                    const t = localStreamRef.current.getAudioTracks()[0]; t.enabled = !t.enabled; setAudioOn(t.enabled);
+                                }, className: `py-5 rounded-2xl text-[11px] font-black border transition-all ${audioOn ? 'border-white/10 text-white/50 bg-white/5' : 'bg-red-500/10 border-red-500/50 text-red-500'}` }, audioOn ? 'MIC ON' : 'MUTED'),
+                                React.createElement('button', { onClick: () => {
+                                    const t = localStreamRef.current.getVideoTracks()[0]; t.enabled = !t.enabled; setVideoOn(t.enabled);
+                                }, className: `py-5 rounded-2xl text-[11px] font-black border transition-all ${videoOn ? 'border-white/10 text-white/50 bg-white/5' : 'bg-red-500/10 border-red-500/50 text-red-500'}` }, videoOn ? 'CAM ON' : 'OFF')
+                            )
                         ),
-                        React.createElement('div', { className: 'grid grid-cols-2 gap-3' },
-                            React.createElement('button', { onClick: () => {
-                                const t = localStreamRef.current.getAudioTracks()[0]; t.enabled = !t.enabled; setAudioOn(t.enabled);
-                            }, className: `py-4 rounded-xl text-[10px] font-black border transition-all ${audioOn ? 'border-white/10 text-white/40' : 'bg-red-500/20 border-red-500 text-red-500'}` }, 'MIC'),
-                            React.createElement('button', { onClick: () => {
-                                const t = localStreamRef.current.getVideoTracks()[0]; t.enabled = !t.enabled; setVideoOn(t.enabled);
-                            }, className: `py-4 rounded-xl text-[10px] font-black border transition-all ${videoOn ? 'border-white/10 text-white/40' : 'bg-red-500/20 border-red-500 text-red-500'}` }, 'CAM')
+                        React.createElement('div', { className: 'mt-auto p-6 rounded-[2rem] bg-white/5 border border-white/5' },
+                            React.createElement('p', { className: 'text-[9px] font-black text-cyber-cyan uppercase mb-4 tracking-widest' }, 'Your Connection ID'),
+                            React.createElement('div', { 
+                                onClick: () => { navigator.clipboard.writeText(myPeerId); alert("ID Copied!"); },
+                                className: 'bg-black p-4 rounded-xl border border-white/5 text-cyber-cyan text-sm font-mono font-black text-center cursor-pointer hover:border-cyber-cyan/30 transition-all'
+                            }, myPeerId),
+                            React.createElement('p', { className: 'text-[9px] text-white/20 mt-4 leading-relaxed text-center italic' }, 'Share this with strangers you vibe with to talk again later.')
                         ),
-                        React.createElement('div', { className: 'mt-auto p-6 rounded-2xl bg-white/5' },
-                            React.createElement('p', { className: 'text-[9px] font-bold text-white/30 uppercase mb-2' }, 'Your Private Connection ID'),
-                            React.createElement('div', { className: 'bg-black p-3 rounded-lg border border-white/5 text-cyber-cyan text-xs font-mono font-bold break-all' }, myPeerId),
-                            React.createElement('p', { className: 'text-[8px] text-white/20 mt-3 leading-relaxed' }, 'Save this ID to reconnect with friends directly later.')
-                        ),
-                        React.createElement('button', { onClick: cleanup, className: 'w-full py-4 rounded-xl border border-white/10 text-[9px] font-black uppercase text-white/30 hover:bg-white/5 transition-all' }, 'End Session')
+                        React.createElement('button', { onClick: cleanup, className: 'w-full py-5 rounded-2xl border border-white/10 text-[10px] font-black uppercase tracking-widest text-white/20 hover:text-red-400 hover:border-red-400/30 transition-all' }, 'End Session')
                     )
                 ),
-                React.createElement('footer', { className: 'h-10 bg-black flex items-center justify-center border-t border-white/5' },
-                    React.createElement('p', { className: 'text-[8px] font-black text-white/10 uppercase tracking-[0.5em]' }, 'End-To-End Encrypted Signal Active')
+
+                // RECONNECT MODAL
+                showIdModal && React.createElement('div', { className: 'fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-6' },
+                    React.createElement('div', { className: 'max-w-md w-full glass-panel rounded-[3rem] p-12 border-cyber-cyan/20' },
+                        React.createElement('h2', { className: 'text-3xl font-black italic mb-2' }, 'PRIVATE CONNECT'),
+                        React.createElement('p', { className: 'text-xs text-white/40 mb-10 leading-relaxed' }, 'Enter a Friend ID or Stranger\'s ID to initiate a direct, encrypted P2P link.'),
+                        React.createElement('div', { className: 'space-y-6' },
+                            React.createElement('input', { 
+                                autoFocus: true,
+                                value: friendIdInput,
+                                onChange: (e) => setFriendIdInput(e.target.value),
+                                className: 'w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-5 text-cyber-cyan font-mono font-bold outline-none focus:border-cyber-cyan/50',
+                                placeholder: 'Paste ID here...'
+                            }),
+                            React.createElement('div', { className: 'flex gap-4' },
+                                React.createElement('button', { onClick: connectToFriend, className: 'flex-1 py-5 btn-glow text-black font-black rounded-2xl text-[11px] uppercase tracking-widest' }, 'Connect'),
+                                React.createElement('button', { onClick: () => setShowIdModal(false), className: 'flex-1 py-5 bg-white/5 text-white/50 font-black rounded-2xl text-[11px] uppercase tracking-widest border border-white/10' }, 'Cancel')
+                            )
+                        )
+                    )
+                ),
+
+                React.createElement('footer', { className: 'h-12 bg-black flex items-center justify-center border-t border-white/5' },
+                    React.createElement('p', { className: 'text-[9px] font-black text-white/10 uppercase tracking-[0.6em]' }, 'Shielded Connection Active')
                 )
             );
         };
