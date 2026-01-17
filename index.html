@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <title>PopChat — Premium Social Video</title>
+    <title>PopChat — Premium Video</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -15,8 +15,7 @@
             colors: { 
                 'dark-bg': '#050505', 
                 'cyber-cyan': '#00f2ff',
-                'safe-green': '#00ff88',
-                'premium-gold': '#ffd700'
+                'safe-green': '#00ff88'
             }
           }
         }
@@ -38,37 +37,29 @@
         #root { height: 100vh; width: 100vw; display: flex; flex-direction: column; }
 
         .glass-panel { 
-            background: rgba(13, 13, 14, 0.95); 
-            border: 1px solid rgba(255, 255, 255, 0.05); 
-            backdrop-filter: blur(40px); 
+            background: rgba(20, 20, 22, 0.4); 
+            border: 1px solid rgba(255, 255, 255, 0.1); 
+            backdrop-filter: blur(12px); 
         }
 
         .video-box {
-            width: 500px;
-            height: 400px;
-            max-width: 90vw;
+            width: 100%;
+            height: 100%;
             background: #000;
-            border-radius: 2.5rem;
+            border-radius: 2rem;
             overflow: hidden;
             border: 1px solid rgba(255, 255, 255, 0.1);
             position: relative;
-            box-shadow: 0 20px 50px rgba(0,0,0,0.9);
-            transition: all 0.5s cubic-bezier(0.2, 1, 0.3, 1);
             flex-shrink: 0;
-        }
-        
-        @media (max-width: 1024px) {
-            .video-box {
-                width: 94vw;
-                height: auto;
-                aspect-ratio: 4 / 3;
-                border-radius: 2rem;
-            }
+            transition: border-color 0.3s ease;
         }
 
-        .video-box.active {
-            border-color: rgba(0, 242, 255, 0.6);
-            transform: scale(1.02);
+        @media (min-width: 1024px) {
+            .video-box {
+                width: 500px;
+                height: 380px;
+                border-radius: 2.5rem;
+            }
         }
 
         video { 
@@ -79,15 +70,15 @@
         }
 
         .btn-glow {
-            background: linear-gradient(135deg, #00f2ff, #00d2ff);
-            box-shadow: 0 0 20px rgba(0, 242, 255, 0.3);
+            background: linear-gradient(135deg, rgba(0, 242, 255, 0.6), rgba(0, 210, 255, 0.6));
+            box-shadow: 0 4px 15px rgba(0, 242, 255, 0.1);
         }
-        .btn-glow:active { transform: scale(0.95); }
 
         .mobile-view-container {
             display: flex;
             width: 200vw;
-            transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+            height: 100%;
+            transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
         }
 
         .mobile-view-container.show-chat { transform: translateX(-100vw); }
@@ -98,22 +89,47 @@
             flex-shrink: 0;
             display: flex;
             flex-direction: column;
+            position: relative;
         }
 
         .label-tag {
             position: absolute;
-            top: 1.25rem;
-            left: 1.25rem;
-            padding: 0.5rem 1rem;
-            border-radius: 1rem;
-            background: rgba(0,0,0,0.8);
-            backdrop-filter: blur(12px);
-            font-size: 10px;
+            top: 1rem;
+            left: 1rem;
+            padding: 0.3rem 0.6rem;
+            border-radius: 0.6rem;
+            background: rgba(0,0,0,0.4);
+            backdrop-filter: blur(8px);
+            font-size: 8px;
             font-weight: 800;
             letter-spacing: 0.1em;
             text-transform: uppercase;
-            border: 1px solid rgba(255,255,255,0.15);
+            border: 1px solid rgba(255,255,255,0.05);
             z-index: 20;
+        }
+
+        .mobile-controls-overlay {
+            position: absolute;
+            bottom: 2rem;
+            left: 1rem;
+            right: 1rem;
+            z-index: 50;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .transparent-btn {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(20px);
+            color: white;
+            transition: all 0.2s ease;
+        }
+
+        .transparent-btn:active {
+            background: rgba(255, 255, 255, 0.2);
+            transform: scale(0.95);
         }
 
         .custom-scroll::-webkit-scrollbar { width: 4px; }
@@ -133,7 +149,6 @@
             const [videoOn, setVideoOn] = useState(true);
             const [isSearching, setIsSearching] = useState(false);
             const [viewMode, setViewMode] = useState('main'); 
-            const [streamLoading, setStreamLoading] = useState(false);
             const [chatInput, setChatInput] = useState('');
             
             const localVideoRef = useRef(null);
@@ -144,20 +159,27 @@
             const scrollRef = useRef(null);
             const touchStartX = useRef(null);
 
-            // Auto-scroll logic
-            useEffect(() => {
-                if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-            }, [messages]);
-
             const attachStream = useCallback(async (videoEl, stream) => {
                 if (videoEl && stream) {
                     videoEl.srcObject = stream;
                     try {
                         await videoEl.play();
                     } catch (e) {
-                        console.error("Autoplay prevented", e);
+                        console.warn("Manual play required", e);
                     }
                 }
+            }, []);
+
+            // Periodic check to ensure videos are playing
+            useEffect(() => {
+                const interval = setInterval(() => {
+                    [localVideoRef.current, remoteVideoRef.current].forEach(v => {
+                        if (v && v.srcObject && v.paused) {
+                            v.play().catch(() => {});
+                        }
+                    });
+                }, 2000);
+                return () => clearInterval(interval);
             }, []);
 
             useLayoutEffect(() => {
@@ -175,75 +197,45 @@
             }, []);
 
             const initPeer = useCallback(() => {
-                // Generate a consistent ID or let PeerJS assign one
                 const peer = new Peer(null, {
-                    debug: 2,
-                    config: {'iceServers': [
-                        { 'urls': 'stun:stun.l.google.com:19302' },
-                        { 'urls': 'stun:stun1.l.google.com:19302' }
-                    ]}
+                    config: {'iceServers': [{ 'urls': 'stun:stun.l.google.com:19302' }]}
                 });
-
-                peer.on('open', (id) => {
-                    console.log('My peer ID is: ' + id);
-                    setStatus('ONLINE');
-                });
-
+                peer.on('open', () => setStatus('ONLINE'));
                 peer.on('call', (call) => {
-                    console.log('Incoming call...');
                     call.answer(localStreamRef.current);
                     call.on('stream', (remoteStream) => {
-                        console.log('Remote stream received');
-                        if (remoteVideoRef.current) {
-                            attachStream(remoteVideoRef.current, remoteStream);
-                        }
+                        if (remoteVideoRef.current) attachStream(remoteVideoRef.current, remoteStream);
                         setStatus('CONNECTED');
                         setIsSearching(false);
                     });
                 });
-
                 peer.on('connection', (conn) => {
                     dataConnRef.current = conn;
                     conn.on('data', (d) => setMessages(prev => [...prev, { text: d, own: false }]));
                     conn.on('close', cleanup);
                 });
-
-                peer.on('error', (err) => {
-                    console.error('Peer error:', err);
-                    setStatus('RECONNECTING...');
-                });
-
                 peerRef.current = peer;
             }, [cleanup, attachStream]);
 
             const startApp = async () => {
-                setStreamLoading(true);
                 try {
                     const stream = await navigator.mediaDevices.getUserMedia({ 
-                        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }, 
+                        video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }, 
                         audio: true 
                     });
                     localStreamRef.current = stream;
                     setIsStarted(true);
                     initPeer();
-                } catch (err) { 
-                    console.error("Media Access Error:", err);
-                    alert("Camera blocked. Please enable camera access in your browser settings to use PopChat.");
-                } finally {
-                    setStreamLoading(false);
-                }
+                } catch (err) { alert("Camera access required. Check your settings."); }
             };
 
             const findStranger = () => {
                 cleanup();
                 setIsSearching(true);
                 setStatus('SEARCHING...');
-                
-                // For a real P2P app without a backend, you'd usually use a signal server.
-                // Here we simulate the matching logic for demo purposes.
                 setTimeout(() => { 
                     if (isSearching) { setStatus('ONLINE'); setIsSearching(false); } 
-                }, 4000);
+                }, 2500);
             };
 
             const sendMessage = () => {
@@ -254,180 +246,174 @@
             };
 
             const shareInvite = () => {
-                const inviteUrl = window.location.href;
-                if (navigator.share) {
-                    navigator.share({ title: 'Join PopChat', url: inviteUrl });
-                } else {
-                    navigator.clipboard.writeText(inviteUrl);
-                    alert("Link copied! Share it with a friend to test the connection.");
-                }
+                const url = window.location.href;
+                if (navigator.share) navigator.share({ title: 'PopChat', url });
+                else { navigator.clipboard.writeText(url); alert("Link Copied!"); }
             };
 
-            const handleTouchStart = (e) => { touchStartX.current = e.touches[0].clientX; };
-            const handleTouchEnd = (e) => {
-                if (touchStartX.current === null) return;
-                const diff = touchStartX.current - e.changedTouches[0].clientX;
-                if (diff > 80) setViewMode('chat');
-                if (diff < -80) setViewMode('main');
-                touchStartX.current = null;
+            const toggleMic = () => {
+                if (!localStreamRef.current) return;
+                const t = localStreamRef.current.getAudioTracks()[0]; t.enabled = !t.enabled; setAudioOn(t.enabled);
             };
 
-            const VideoDisplay = () => React.createElement('div', { className: 'flex-1 flex flex-col items-center justify-start lg:justify-center gap-4 lg:gap-8 overflow-y-auto py-6 px-4' },
-                React.createElement('div', { className: `video-box ${status === 'CONNECTED' ? 'active shadow-[0_0_40px_rgba(0,242,255,0.2)]' : ''}` },
-                    React.createElement('div', { className: 'label-tag' }, 'Stranger'),
-                    React.createElement('video', { 
-                        ref: remoteVideoRef, 
-                        autoPlay: true, 
-                        playsInline: true,
-                        // Ensure it takes up space even if blank
-                        style: { background: '#111' } 
-                    }),
-                    status !== 'CONNECTED' && React.createElement('div', { className: 'absolute inset-0 bg-zinc-900/60 flex flex-col items-center justify-center' },
-                        isSearching && React.createElement('div', { className: 'w-10 h-10 border-2 border-cyber-cyan border-t-transparent rounded-full animate-spin mb-4' }),
-                        React.createElement('p', { className: 'text-[10px] font-bold text-white/30 uppercase tracking-[0.4em]' }, isSearching ? 'Finding peer...' : 'Ready to Match')
+            const toggleCam = () => {
+                if (!localStreamRef.current) return;
+                const t = localStreamRef.current.getVideoTracks()[0]; t.enabled = !t.enabled; setVideoOn(t.enabled);
+            };
+
+            const DesktopLayout = () => React.createElement('div', { className: 'hidden lg:flex flex-col h-full' },
+                React.createElement('header', { className: 'h-20 flex items-center justify-between px-12 border-b border-white/5 bg-black' },
+                    React.createElement('div', { className: 'text-2xl font-black italic text-white' }, 'POPCHAT'),
+                    React.createElement('div', { className: 'flex gap-4' },
+                        React.createElement('div', { className: 'px-4 py-2 rounded-full bg-white/5 border border-white/10 flex items-center gap-2' },
+                            React.createElement('div', { className: 'w-1.5 h-1.5 rounded-full bg-safe-green animate-pulse' }),
+                            React.createElement('span', { className: 'text-[9px] font-black opacity-50 uppercase' }, status)
+                        ),
+                        React.createElement('button', { onClick: shareInvite, className: 'px-6 py-2 rounded-full bg-cyber-cyan text-black text-[10px] font-black uppercase' }, 'Invite Friend')
                     )
                 ),
-                React.createElement('div', { className: 'video-box border-cyber-cyan/10' },
-                    React.createElement('div', { className: 'label-tag text-cyber-cyan' }, 'You'),
-                    React.createElement('video', { 
-                        ref: localVideoRef,
-                        autoPlay: true, 
-                        playsInline: true, 
-                        muted: true, 
-                        className: `scale-x-[-1] transition-opacity duration-300 ${videoOn ? 'opacity-100' : 'opacity-0'}` 
-                    }),
-                    !videoOn && React.createElement('div', { className: 'absolute inset-0 bg-black flex flex-col items-center justify-center' },
-                        React.createElement('span', { className: 'text-[10px] font-black text-white/20' }, 'CAMERA OFF')
+                React.createElement('main', { className: 'flex-1 flex overflow-hidden' },
+                    React.createElement('div', { className: 'w-[400px] glass-panel border-r border-white/5 flex flex-col' },
+                        React.createElement('div', { className: 'p-8 flex-1 overflow-y-auto space-y-4 custom-scroll', ref: scrollRef },
+                            messages.map((m, i) => React.createElement('div', { key: i, className: `flex ${m.own ? 'justify-end' : 'justify-start'}` },
+                                React.createElement('div', { className: `max-w-[80%] px-5 py-3 rounded-2xl text-[14px] ${m.own ? 'bg-cyber-cyan text-black font-bold' : 'bg-white/5 text-white border border-white/10'}` }, m.text)
+                            ))
+                        ),
+                        React.createElement('div', { className: 'p-8 flex gap-3' },
+                            React.createElement('input', { 
+                                className: 'flex-1 bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-xs outline-none text-white',
+                                placeholder: 'Type...',
+                                value: chatInput,
+                                onChange: (e) => setChatInput(e.target.value),
+                                onKeyDown: (e) => e.key === 'Enter' && sendMessage()
+                            }),
+                            React.createElement('button', { onClick: sendMessage, className: 'w-14 h-14 flex items-center justify-center bg-cyber-cyan text-black rounded-2xl' }, '➤')
+                        )
+                    ),
+                    React.createElement('div', { className: 'flex-1 flex flex-col items-center justify-center gap-6 p-8' },
+                        React.createElement('div', { className: 'video-box' },
+                            React.createElement('div', { className: 'label-tag' }, 'Stranger'),
+                            React.createElement('video', { 
+                                ref: (el) => { remoteVideoRef.current = el; },
+                                autoPlay: true, playsInline: true, 
+                                style: { background: '#0a0a0a' } 
+                            }),
+                            status !== 'CONNECTED' && React.createElement('div', { className: 'absolute inset-0 flex items-center justify-center bg-zinc-900/40' },
+                                React.createElement('p', { className: 'text-[10px] font-black opacity-20 uppercase tracking-[0.4em]' }, isSearching ? 'Finding...' : 'Ready')
+                            )
+                        ),
+                        React.createElement('div', { className: 'video-box border-white/5' },
+                            React.createElement('div', { className: 'label-tag text-cyber-cyan' }, 'You'),
+                            React.createElement('video', { 
+                                ref: (el) => { localVideoRef.current = el; if(el && localStreamRef.current) attachStream(el, localStreamRef.current); },
+                                autoPlay: true, playsInline: true, muted: true, 
+                                className: `scale-x-[-1] transition-opacity duration-300 ${videoOn ? 'opacity-100' : 'opacity-0'}` 
+                            })
+                        )
+                    ),
+                    React.createElement('div', { className: 'w-[320px] glass-panel border-l border-white/5 p-10 flex flex-col gap-4' },
+                        React.createElement('button', { onClick: findStranger, className: 'w-full py-6 btn-glow text-black font-black rounded-2xl text-xs uppercase' }, isSearching ? 'MATCHING...' : 'Find Match'),
+                        React.createElement('button', { onClick: toggleMic, className: `py-4 rounded-xl text-[9px] font-black border ${audioOn ? 'border-white/10 text-white/30' : 'border-red-500 text-red-500'}` }, audioOn ? 'MIC ON' : 'MUTED'),
+                        React.createElement('button', { onClick: toggleCam, className: `py-4 rounded-xl text-[9px] font-black border ${videoOn ? 'border-white/10 text-white/30' : 'border-red-500 text-red-500'}` }, videoOn ? 'CAM ON' : 'OFF')
+                    )
+                )
+            );
+
+            const MobileLayout = () => React.createElement('div', { 
+                className: 'lg:hidden flex-1 relative overflow-hidden',
+                onTouchStart: (e) => touchStartX.current = e.touches[0].clientX,
+                onTouchEnd: (e) => {
+                    const diff = touchStartX.current - e.changedTouches[0].clientX;
+                    if (diff > 80) setViewMode('chat');
+                    if (diff < -80) setViewMode('main');
+                    touchStartX.current = null;
+                }
+            },
+                React.createElement('div', { className: `mobile-view-container ${viewMode === 'chat' ? 'show-chat' : ''}` },
+                    // VIDEO MAIN SCREEN
+                    React.createElement('div', { className: 'mobile-screen bg-black' },
+                        React.createElement('div', { className: 'absolute top-0 left-0 right-0 h-16 z-40 flex items-center justify-between px-6 pointer-events-none' },
+                            React.createElement('h2', { className: 'text-lg font-black italic text-white' }, 'POPCHAT'),
+                            React.createElement('div', { className: 'px-2.5 py-1 rounded-full bg-black/40 backdrop-blur-md border border-white/10 flex items-center gap-1.5' },
+                                React.createElement('div', { className: 'w-1.5 h-1.5 rounded-full bg-safe-green animate-pulse' }),
+                                React.createElement('span', { className: 'text-[8px] font-black uppercase text-white' }, status)
+                            )
+                        ),
+                        // FULL SPLIT VIDEO
+                        React.createElement('div', { className: 'flex-1 flex flex-col h-full' },
+                            React.createElement('div', { className: 'flex-1 relative overflow-hidden' },
+                                React.createElement('div', { className: 'label-tag' }, 'Stranger'),
+                                React.createElement('video', { 
+                                    ref: (el) => { remoteVideoRef.current = el; },
+                                    autoPlay: true, playsInline: true 
+                                }),
+                                status !== 'CONNECTED' && React.createElement('div', { className: 'absolute inset-0 flex items-center justify-center' },
+                                    isSearching && React.createElement('div', { className: 'w-8 h-8 border-2 border-cyber-cyan border-t-transparent rounded-full animate-spin' })
+                                )
+                            ),
+                            React.createElement('div', { className: 'flex-1 relative overflow-hidden border-t border-white/10' },
+                                React.createElement('div', { className: 'label-tag text-cyber-cyan' }, 'You'),
+                                React.createElement('video', { 
+                                    ref: (el) => { localVideoRef.current = el; if(el && localStreamRef.current) attachStream(el, localStreamRef.current); },
+                                    autoPlay: true, playsInline: true, muted: true, 
+                                    className: `scale-x-[-1] ${videoOn ? 'opacity-100' : 'opacity-0'}` 
+                                })
+                            )
+                        ),
+                        // FLOATING TRANSPARENT OVERLAY BUTTONS
+                        React.createElement('div', { className: 'mobile-controls-overlay' },
+                            React.createElement('button', { 
+                                onClick: findStranger, 
+                                className: 'w-full py-5 btn-glow text-black font-black rounded-2xl text-[11px] uppercase tracking-widest'
+                            }, isSearching ? 'MATCHING...' : 'Find Next Stranger'),
+                            React.createElement('div', { className: 'flex gap-2' },
+                                React.createElement('button', { onClick: toggleMic, className: `flex-1 py-4 rounded-2xl transparent-btn text-[10px] font-black ${!audioOn ? 'text-red-500 bg-red-500/10 border-red-500/40' : ''}` }, 'MIC'),
+                                React.createElement('button', { onClick: toggleCam, className: `flex-1 py-4 rounded-2xl transparent-btn text-[10px] font-black ${!videoOn ? 'text-red-500 bg-red-500/10 border-red-500/40' : ''}` }, 'CAM'),
+                                React.createElement('button', { onClick: shareInvite, className: 'flex-1 py-4 rounded-2xl transparent-btn text-[10px] font-black text-cyber-cyan' }, 'INVITE')
+                            ),
+                            React.createElement('p', { className: 'text-center text-[8px] font-black text-white/20 uppercase tracking-[0.4em] mt-2' }, 'Swipe ➔ for chat')
+                        )
+                    ),
+                    // CHAT SCREEN
+                    React.createElement('div', { className: 'mobile-screen bg-zinc-950' },
+                        React.createElement('div', { className: 'flex-1 m-4 rounded-[2.5rem] glass-panel flex flex-col overflow-hidden border border-white/10' },
+                            React.createElement('div', { className: 'p-6 flex justify-between items-center border-b border-white/5 bg-black/20' },
+                                React.createElement('button', { onClick: () => setViewMode('main'), className: 'text-[10px] font-black text-cyber-cyan' }, '⇠ VIDEO'),
+                                React.createElement('span', { className: 'text-[10px] font-black opacity-30 uppercase text-white' }, 'Chat Message')
+                            ),
+                            React.createElement('div', { ref: scrollRef, className: 'flex-1 p-6 overflow-y-auto space-y-3 custom-scroll' },
+                                messages.map((m, i) => React.createElement('div', { key: i, className: `flex ${m.own ? 'justify-end' : 'justify-start'}` },
+                                    React.createElement('div', { className: `max-w-[85%] px-5 py-3 rounded-2xl text-[14px] ${m.own ? 'bg-cyber-cyan text-black font-bold' : 'bg-white/10 text-white border border-white/5'}` }, m.text)
+                                ))
+                            ),
+                            React.createElement('div', { className: 'p-4 flex gap-2' },
+                                React.createElement('input', { 
+                                    className: 'flex-1 bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-xs text-white outline-none',
+                                    placeholder: 'Type a message...',
+                                    value: chatInput,
+                                    onChange: (e) => setChatInput(e.target.value),
+                                    onKeyDown: (e) => e.key === 'Enter' && sendMessage()
+                                }),
+                                React.createElement('button', { onClick: sendMessage, className: 'px-6 bg-cyber-cyan text-black text-[10px] font-black rounded-2xl active:scale-95' }, 'SEND')
+                            )
+                        )
                     )
                 )
             );
 
             if (!isStarted) {
                 return React.createElement('div', { className: 'h-full flex items-center justify-center bg-dark-bg p-6' },
-                    React.createElement('div', { className: 'max-w-md w-full glass-panel rounded-[3rem] p-12 text-center border-white/10 shadow-2xl relative' },
+                    React.createElement('div', { className: 'max-w-md w-full glass-panel rounded-[3.5rem] p-14 text-center border-white/10' },
                         React.createElement('div', { className: 'text-6xl font-black italic tracking-tighter mb-4 text-white' }, 'POPCHAT'),
-                        React.createElement('p', { className: 'text-[10px] uppercase tracking-[0.5em] text-white/40 mb-12' }, 'Privacy-First • High Quality • Encrypted'),
-                        React.createElement('button', { 
-                            onClick: startApp, 
-                            disabled: streamLoading,
-                            className: 'w-full py-6 btn-glow text-black font-black rounded-2xl text-xs uppercase tracking-widest transition-transform hover:scale-[1.02]' 
-                        }, streamLoading ? 'Starting Media...' : 'Launch Chat')
+                        React.createElement('p', { className: 'text-[10px] uppercase tracking-[0.4em] text-white/40 mb-12' }, 'P2P • High Definition • Safe'),
+                        React.createElement('button', { onClick: startApp, className: 'w-full py-6 btn-glow text-black font-black rounded-2xl text-xs uppercase' }, 'Launch Experience')
                     )
                 );
             }
 
             return React.createElement('div', { className: 'flex flex-col h-full bg-dark-bg' },
-                React.createElement('div', { className: 'hidden lg:flex flex-col h-full' },
-                    React.createElement('header', { className: 'h-20 flex items-center justify-between px-12 border-b border-white/5 bg-black' },
-                        React.createElement('div', { className: 'text-2xl font-black italic text-white uppercase' }, 'POPCHAT'),
-                        React.createElement('div', { className: 'flex gap-6 items-center' },
-                            React.createElement('div', { className: 'flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10' },
-                                React.createElement('span', { className: 'w-2 h-2 bg-safe-green rounded-full animate-pulse' }),
-                                React.createElement('span', { className: 'text-[9px] font-black text-white/50 uppercase' }, status)
-                            ),
-                            React.createElement('button', { onClick: shareInvite, className: 'px-6 py-2 rounded-full bg-cyber-cyan text-black text-[10px] font-black uppercase hover:opacity-80 transition-opacity' }, 'Invite Friend')
-                        )
-                    ),
-                    React.createElement('main', { className: 'flex-1 flex overflow-hidden' },
-                        React.createElement('div', { className: 'w-[400px] glass-panel border-r border-white/5 flex flex-col' },
-                            React.createElement('div', { className: 'p-8 flex-1 overflow-y-auto space-y-4 custom-scroll', ref: scrollRef },
-                                messages.map((m, i) => React.createElement('div', { key: i, className: `flex ${m.own ? 'justify-end' : 'justify-start'}` },
-                                    React.createElement('div', { className: `max-w-[80%] px-5 py-3 rounded-2xl text-[14px] ${m.own ? 'bg-cyber-cyan text-black font-bold' : 'bg-white/5 text-white border border-white/10'}` }, m.text)
-                                ))
-                            ),
-                            React.createElement('div', { className: 'p-8 flex gap-3 bg-black/40' },
-                                React.createElement('input', { 
-                                    className: 'flex-1 bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-xs outline-none focus:border-cyber-cyan/40 text-white transition-all',
-                                    placeholder: 'Type a message...',
-                                    value: chatInput,
-                                    onChange: (e) => setChatInput(e.target.value),
-                                    onKeyDown: (e) => e.key === 'Enter' && sendMessage()
-                                }),
-                                React.createElement('button', { onClick: sendMessage, className: 'w-14 h-14 flex items-center justify-center bg-cyber-cyan text-black rounded-2xl active:scale-90 transition-transform' },
-                                    React.createElement('svg', { width: "20", height: "20", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "3" }, 
-                                        React.createElement('path', { d: "M22 2L11 13M22 2L15 22L11 13L2 9L22 2Z" })
-                                    )
-                                )
-                            )
-                        ),
-                        React.createElement(VideoDisplay),
-                        React.createElement('div', { className: 'w-[320px] glass-panel border-l border-white/5 p-10 flex flex-col gap-6' },
-                            React.createElement('div', { className: 'p-6 rounded-3xl bg-cyber-cyan/5 border border-cyber-cyan/10' },
-                                React.createElement('p', { className: 'text-[9px] font-black text-cyber-cyan uppercase tracking-widest mb-2' }, '70/30 Goal'),
-                                React.createElement('div', { className: 'h-1.5 w-full bg-white/5 rounded-full overflow-hidden' },
-                                    React.createElement('div', { className: 'h-full bg-cyber-cyan transition-all duration-1000', style: { width: '70%' } })
-                                ),
-                                React.createElement('p', { className: 'text-[8px] text-white/30 mt-3 font-bold uppercase' }, 'Improving Balance')
-                            ),
-                            React.createElement('button', { onClick: findStranger, className: 'w-full py-6 btn-glow text-black font-black rounded-2xl text-xs uppercase tracking-widest' }, isSearching ? 'MATCHING...' : 'Find Match'),
-                            React.createElement('div', { className: 'grid grid-cols-2 gap-3' },
-                                React.createElement('button', { onClick: () => {
-                                    const t = localStreamRef.current.getAudioTracks()[0]; t.enabled = !t.enabled; setAudioOn(t.enabled);
-                                }, className: `py-5 rounded-2xl text-[9px] font-black border transition-all ${audioOn ? 'border-white/10 text-white/30' : 'bg-red-500/10 border-red-500 text-red-500'}` }, audioOn ? 'MIC ON' : 'MUTED'),
-                                React.createElement('button', { onClick: () => {
-                                    const t = localStreamRef.current.getVideoTracks()[0]; t.enabled = !t.enabled; setVideoOn(t.enabled);
-                                }, className: `py-5 rounded-2xl text-[9px] font-black border transition-all ${videoOn ? 'border-white/10 text-white/30' : 'bg-red-500/10 border-red-500 text-red-500'}` }, videoOn ? 'CAM ON' : 'OFF')
-                            )
-                        )
-                    )
-                ),
-                React.createElement('div', { 
-                    className: 'lg:hidden flex-1 relative overflow-hidden',
-                    onTouchStart: handleTouchStart, onTouchEnd: handleTouchEnd
-                },
-                    React.createElement('div', { className: `mobile-view-container h-full ${viewMode === 'chat' ? 'show-chat' : ''}` },
-                        React.createElement('div', { className: 'mobile-screen' },
-                            React.createElement('header', { className: 'pt-6 pb-2 text-center' },
-                                React.createElement('h2', { className: 'text-2xl font-black italic text-white uppercase tracking-tighter' }, 'POPCHAT')
-                            ),
-                            React.createElement(VideoDisplay),
-                            React.createElement('div', { className: 'p-6 flex flex-col gap-3 pb-8' },
-                                React.createElement('button', { onClick: findStranger, className: 'w-full py-5 btn-glow text-black font-black rounded-2xl text-[11px] uppercase tracking-widest' }, isSearching ? '...' : 'Find Next'),
-                                React.createElement('div', { className: 'flex gap-3' },
-                                    React.createElement('button', { onClick: () => {
-                                        const t = localStreamRef.current.getAudioTracks()[0]; t.enabled = !t.enabled; setAudioOn(t.enabled);
-                                    }, className: `flex-1 py-4 rounded-2xl font-black border text-[10px] ${audioOn ? 'border-white/10 text-white/40' : 'bg-red-500/20 border-red-500 text-red-500'}` }, 'MIC'),
-                                    React.createElement('button', { onClick: () => {
-                                        const t = localStreamRef.current.getVideoTracks()[0]; t.enabled = !t.enabled; setVideoOn(t.enabled);
-                                    }, className: `flex-1 py-4 rounded-2xl font-black border text-[10px] ${videoOn ? 'border-white/10 text-white/40' : 'bg-red-500/20 border-red-500 text-red-500'}` }, 'CAM'),
-                                    React.createElement('button', { onClick: shareInvite, className: 'flex-1 py-4 rounded-2xl font-black border border-cyber-cyan text-cyber-cyan text-[10px]' }, 'INVITE')
-                                )
-                            ),
-                            React.createElement('div', { className: 'pb-6 text-center' },
-                                React.createElement('button', { onClick: () => setViewMode('chat'), className: 'text-[9px] font-black text-white/20 uppercase tracking-[0.5em]' }, 'Swipe for chat ➔')
-                            )
-                        ),
-                        React.createElement('div', { className: 'mobile-screen relative' },
-                            React.createElement('div', { className: 'absolute inset-0 z-0 bg-black/60 backdrop-blur-3xl' }),
-                            React.createElement('div', { className: 'flex-1 z-10 m-4 rounded-[2.5rem] flex flex-col overflow-hidden bg-black/40 border border-white/5' },
-                                React.createElement('div', { className: 'p-6 flex justify-between items-center border-b border-white/5 bg-white/5' },
-                                    React.createElement('button', { onClick: () => setViewMode('main'), className: 'text-[10px] font-black text-cyber-cyan' }, '⇠ DISMISS'),
-                                    React.createElement('span', { className: 'text-[10px] font-black uppercase text-white/40' }, 'Direct Message')
-                                ),
-                                React.createElement('div', { ref: scrollRef, className: 'flex-1 p-6 overflow-y-auto space-y-4 custom-scroll' },
-                                    messages.map((m, i) => React.createElement('div', { key: i, className: `flex ${m.own ? 'justify-end' : 'justify-start'}` },
-                                        React.createElement('div', { className: `max-w-[85%] px-5 py-3 rounded-2xl text-[14px] ${m.own ? 'bg-cyber-cyan text-black font-bold' : 'bg-white/10 text-white'}` }, m.text)
-                                    ))
-                                ),
-                                React.createElement('div', { className: 'p-6 bg-black/60' },
-                                    React.createElement('div', { className: 'relative flex items-center' },
-                                        React.createElement('input', { 
-                                            className: 'w-full bg-white/5 border border-white/10 rounded-2xl pl-6 pr-20 py-5 text-sm outline-none text-white',
-                                            placeholder: 'Say something nice...',
-                                            value: chatInput,
-                                            onChange: (e) => setChatInput(e.target.value),
-                                            onKeyDown: (e) => e.key === 'Enter' && sendMessage()
-                                        }),
-                                        React.createElement('button', { 
-                                            onClick: sendMessage,
-                                            className: 'absolute right-3 px-4 py-2 bg-cyber-cyan text-black text-[10px] font-black rounded-xl uppercase active:scale-90 transition-transform'
-                                        }, 'SEND')
-                                    )
-                                )
-                            )
-                        )
-                    )
-                )
+                React.createElement(DesktopLayout),
+                React.createElement(MobileLayout)
             );
         };
         const root = ReactDOM.createRoot(document.getElementById('root'));
