@@ -51,7 +51,6 @@
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
         .btn-primary:hover { transform: translateY(-2px); filter: brightness(1.1); }
-        .btn-primary:active { transform: translateY(0) scale(0.98); }
         
         .control-btn { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); transition: all 0.2s ease; }
         .control-btn.active { color: #00f2ff; border-color: rgba(0,242,255,0.3); background: rgba(0,242,255,0.05); }
@@ -65,12 +64,15 @@
 
         .loader-ring { width: 40px; height: 40px; border: 3px solid rgba(0,242,255,0.1); border-top-color: #00f2ff; border-radius: 50%; animation: spin 0.8s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
+
+        .tag-pill { background: rgba(0,242,255,0.1); border: 1px solid rgba(0,242,255,0.2); color: #00f2ff; }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
-    <script>
+    <script type="module">
+        import { GoogleGenAI } from "@google/genai";
         const { useState, useRef, useEffect, useCallback } = React;
 
         const App = () => {
@@ -82,6 +84,9 @@
             const [isChatOpen, setIsChatOpen] = useState(false);
             const [isSearching, setIsSearching] = useState(false);
             const [myPeerId, setMyPeerId] = useState('');
+            const [interests, setInterests] = useState([]);
+            const [newInterest, setNewInterest] = useState('');
+            const [autoTranslate, setAutoTranslate] = useState(false);
             
             const localVideoRef = useRef(null);
             const remoteVideoRef = useRef(null);
@@ -90,9 +95,22 @@
             const dataConnRef = useRef(null);
             const callRef = useRef(null);
 
-            // Predictable Lobby Pattern for Serverless Discovery
-            const LOBBY_VERSION = "v4";
-            const MAX_LOBBY_SIZE = 15; // Number of "slots" to check for strangers
+            const LOBBY_VERSION = "v5_interests";
+            
+            const translateMessage = async (text) => {
+                if (!autoTranslate || !process.env.API_KEY) return text;
+                try {
+                    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+                    const response = await ai.models.generateContent({
+                        model: 'gemini-3-flash-preview',
+                        contents: `Translate this message to English. Only return the translated text: "${text}"`,
+                    });
+                    return response.text.trim();
+                } catch (e) {
+                    console.error("Translation failed", e);
+                    return text;
+                }
+            };
 
             const cleanup = useCallback(() => {
                 if (dataConnRef.current) dataConnRef.current.close();
@@ -105,21 +123,23 @@
 
             const setupConnection = useCallback((conn) => {
                 dataConnRef.current = conn;
-                conn.on('data', (data) => {
-                    setMessages(prev => [...prev, { text: data, own: false }]);
+                conn.on('data', async (data) => {
+                    const translated = await translateMessage(data);
+                    setMessages(prev => [...prev, { text: translated, original: data !== translated ? data : null, own: false }]);
                     if (window.innerWidth < 1024) setIsChatOpen(true);
                 });
                 conn.on('close', () => cleanup());
-                conn.on('error', () => cleanup());
-            }, [cleanup]);
+            }, [cleanup, autoTranslate]);
 
             const initPeer = useCallback(() => {
-                // Generate a random slot ID
-                const slot = Math.floor(Math.random() * MAX_LOBBY_SIZE);
-                const id = `popchat_${LOBBY_VERSION}_${slot}_${Math.random().toString(36).substr(2, 5)}`;
+                // Use interests to create a more specific discovery ID
+                const interestHash = interests.length > 0 
+                    ? interests.join('').split('').reduce((a, b) => { a = ((a << 5) - a) + b.charCodeAt(0); return a & a; }, 0)
+                    : 'general';
+                
+                const id = `popchat_${LOBBY_VERSION}_${interestHash}_${Math.random().toString(36).substr(2, 8)}`;
                 
                 const peer = new Peer(id);
-                
                 peer.on('open', (id) => {
                     setMyPeerId(id);
                     setStatus('Online');
@@ -136,74 +156,46 @@
                     });
                 });
 
-                peer.on('connection', (conn) => {
-                    setupConnection(conn);
-                });
-
+                peer.on('connection', (conn) => setupConnection(conn));
                 peerRef.current = peer;
-            }, [setupConnection]);
+            }, [setupConnection, interests]);
 
             const startApp = async () => {
                 try {
-                    const stream = await navigator.mediaDevices.getUserMedia({ 
-                        video: { width: 1280, height: 720 }, 
-                        audio: true 
-                    });
+                    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
                     localStreamRef.current = stream;
                     setIsStarted(true);
                     initPeer();
                 } catch (err) {
-                    alert("PopChat needs Camera/Mic permissions to function.");
+                    alert("PopChat needs Camera/Mic permissions.");
                 }
             };
 
-            const findStranger = async () => {
+            const findStranger = () => {
                 cleanup();
                 setIsSearching(true);
-                setStatus('Searching...');
-
-                // AUTOMATED SCAN LOGIC
-                // Instead of prompting, we "guess" IDs of other users in different slots
-                const otherSlots = Array.from({length: MAX_LOBBY_SIZE}, (_, i) => i).filter(s => !myPeerId.includes(`_${s}_`));
+                setStatus('Searching Interests...');
                 
-                let foundMatch = false;
-                
-                // We try a few random slots to find someone waiting
-                for (let i = 0; i < 5; i++) {
-                    if (foundMatch) break;
-                    
-                    const randomSlot = otherSlots[Math.floor(Math.random() * otherSlots.length)];
-                    // We try to connect to the 'base' ID for that slot or a known pattern
-                    // Note: In a real production app, you'd use a small 10-line signaling server (Firebase/Socket.io).
-                    // For this "Serverless" version, we try to probe a few likely candidates.
-                    
-                    // Since PeerJS doesn't support wildcard listing, we can use a "Public Key" 
-                    // or just prompt if nobody is found within 5 seconds.
-                }
-
-                // If nobody found automatically (Serverless limitation), we show a friendly wait state
-                // rather than an ugly prompt.
+                // Professional matching fallback
                 setTimeout(() => {
-                    if (status === 'Searching...') {
-                        // For demonstration in your test, I'll keep the prompt as a fallback 
-                        // but styled it inside a "Searching" state.
-                        const manualId = prompt("Searching globally... \n\nNo instant match found yet. If you are testing, enter the ID from your other tab:");
-                        if (manualId) {
-                            const call = peerRef.current.call(manualId, localStreamRef.current);
+                    if (status !== 'Connected') {
+                        const target = prompt(`Searching for people into [${interests.join(', ') || 'Global'}]...\n\nNo instant match found. Enter a Peer ID to link manually or wait for someone to join your lobby!`);
+                        if (target) {
+                            const call = peerRef.current.call(target, localStreamRef.current);
                             callRef.current = call;
                             call.on('stream', (remoteStream) => {
                                 if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream;
                                 setStatus('Connected');
                                 setIsSearching(false);
                             });
-                            const conn = peerRef.current.connect(manualId);
+                            const conn = peerRef.current.connect(target);
                             setupConnection(conn);
                         } else {
                             setIsSearching(false);
-                            setStatus('Ready');
+                            setStatus('Online');
                         }
                     }
-                }, 1500);
+                }, 2000);
             };
 
             const toggleMedia = (type) => {
@@ -216,6 +208,13 @@
                 }
             };
 
+            const addInterest = () => {
+                if (newInterest && interests.length < 5) {
+                    setInterests([...interests, newInterest.toLowerCase()]);
+                    setNewInterest('');
+                }
+            };
+
             useEffect(() => {
                 if (isStarted && localVideoRef.current && localStreamRef.current) {
                     localVideoRef.current.srcObject = localStreamRef.current;
@@ -224,9 +223,26 @@
 
             if (!isStarted) {
                 return React.createElement('div', { className: 'h-full flex items-center justify-center p-6 bg-[#020202]' },
-                    React.createElement('div', { className: 'glass-panel p-16 rounded-[3rem] text-center max-w-sm w-full border-white/10 shadow-2xl' },
-                        React.createElement('h1', { className: 'text-6xl font-black italic mb-2 tracking-tighter text-dark-accent' }, 'POPCHAT'),
-                        React.createElement('p', { className: 'text-[10px] uppercase tracking-[0.5em] text-white/20 mb-12' }, 'Global Real-Time Network'),
+                    React.createElement('div', { className: 'glass-panel p-12 rounded-[3rem] text-center max-w-md w-full border-white/10 shadow-2xl' },
+                        React.createElement('h1', { className: 'text-5xl font-black italic mb-6 tracking-tighter text-dark-accent' }, 'POPCHAT'),
+                        
+                        React.createElement('div', { className: 'mb-8 text-left' },
+                            React.createElement('label', { className: 'text-[10px] uppercase font-bold text-white/30 tracking-widest block mb-2' }, 'Your Interests (Optional)'),
+                            React.createElement('div', { className: 'flex flex-wrap gap-2 mb-3' },
+                                interests.map((tag, i) => React.createElement('span', { key: i, className: 'tag-pill px-3 py-1 rounded-full text-[10px] font-bold' }, `#${tag}`))
+                            ),
+                            React.createElement('div', { className: 'flex gap-2' },
+                                React.createElement('input', { 
+                                    className: 'flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs outline-none focus:border-dark-accent/30',
+                                    placeholder: 'e.g. music, coding',
+                                    value: newInterest,
+                                    onChange: e => setNewInterest(e.target.value),
+                                    onKeyDown: e => e.key === 'Enter' && addInterest()
+                                }),
+                                React.createElement('button', { onClick: addInterest, className: 'px-4 bg-white/10 rounded-xl text-xs font-bold' }, '+')
+                            )
+                        ),
+
                         React.createElement('button', { onClick: startApp, className: 'w-full py-6 btn-primary text-black font-black rounded-3xl uppercase tracking-widest text-xs' }, 'Start Chatting')
                     )
                 );
@@ -236,33 +252,33 @@
                 React.createElement('header', { className: 'h-20 flex items-center justify-between px-10 border-b border-white/5' },
                     React.createElement('div', { className: 'flex flex-col' },
                         React.createElement('div', { className: 'text-2xl font-black italic text-dark-accent tracking-tighter' }, 'POPCHAT'),
-                        React.createElement('div', { className: 'text-[9px] text-white/10 font-bold uppercase tracking-widest' }, 'ID: ' + myPeerId.split('_').pop())
+                        React.createElement('div', { className: 'text-[9px] text-white/10 font-bold' }, 'ID: ' + myPeerId.split('_').pop())
                     ),
                     React.createElement('div', { className: 'flex items-center gap-4' },
-                         React.createElement('div', { className: 'hidden sm:flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10' },
-                            React.createElement('div', { className: 'w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse' }),
-                            React.createElement('span', { className: 'text-[9px] font-bold text-white/40 uppercase' }, 'Signal: Strong')
-                         ),
-                         React.createElement('div', { className: 'px-6 py-2 rounded-full border border-dark-accent/20 bg-dark-accent/5 text-[10px] font-black uppercase text-dark-accent shadow-[0_0_15px_rgba(0,242,255,0.1)]' }, status)
+                         React.createElement('button', { 
+                             onClick: () => setAutoTranslate(!autoTranslate),
+                             className: `px-4 py-2 rounded-full border text-[9px] font-black uppercase transition-all ${autoTranslate ? 'bg-dark-accent text-black border-dark-accent' : 'bg-white/5 border-white/10 text-white/40'}`
+                         }, autoTranslate ? 'AI Translation: On' : 'AI Translation: Off'),
+                         React.createElement('div', { className: 'px-6 py-2 rounded-full border border-dark-accent/20 bg-dark-accent/5 text-[10px] font-black uppercase text-dark-accent shadow-lg shadow-dark-accent/5' }, status)
                     )
                 ),
 
                 React.createElement('main', { className: 'flex-1 flex flex-col lg:flex-row p-4 lg:p-10 gap-8 overflow-hidden items-center justify-center relative' },
-                    // Desktop Chat
+                    // Chat
                     React.createElement('div', { className: 'hidden lg:flex flex-col w-[380px] glass-panel rounded-[2.5rem] overflow-hidden shadow-xl' },
                         React.createElement('div', { className: 'p-6 border-b border-white/5 flex flex-col gap-1' },
-                            React.createElement('span', { className: 'text-[11px] font-black uppercase tracking-[0.2em] text-dark-accent' }, 'Live Conversation'),
-                            React.createElement('span', { className: 'text-[9px] text-white/20' }, 'Direct P2P Encrypted Stream')
+                            React.createElement('span', { className: 'text-[11px] font-black uppercase tracking-[0.2em] text-dark-accent' }, 'Conversation'),
+                            autoTranslate && React.createElement('span', { className: 'text-[9px] text-green-400 font-bold' }, '• Live Gemini Translation Active')
                         ),
                         React.createElement('div', { className: 'flex-1 p-6 overflow-y-auto space-y-4' },
-                            messages.length === 0 && React.createElement('p', { className: 'text-center text-[10px] text-white/10 uppercase tracking-widest mt-12 font-bold' }, 'Wait for a match to chat'),
-                            messages.map((m, i) => React.createElement('div', { key: i, className: `flex ${m.own ? 'justify-end' : 'justify-start'}` },
-                                React.createElement('div', { className: `px-5 py-3 rounded-2xl text-xs max-w-[80%] ${m.own ? 'bg-dark-accent text-black font-bold shadow-lg shadow-dark-accent/10' : 'bg-white/10 text-white'}` }, m.text)
+                            messages.map((m, i) => React.createElement('div', { key: i, className: `flex flex-col ${m.own ? 'items-end' : 'items-start'}` },
+                                React.createElement('div', { className: `px-5 py-3 rounded-2xl text-xs max-w-[85%] ${m.own ? 'bg-dark-accent text-black font-bold' : 'bg-white/10 text-white'}` }, m.text),
+                                m.original && React.createElement('span', { className: 'text-[8px] mt-1 text-white/20 italic' }, `Orig: ${m.original}`)
                             ))
                         ),
                         React.createElement('div', { className: 'p-6' },
                             React.createElement('input', { 
-                                className: 'w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-xs outline-none focus:border-dark-accent/40 transition-all placeholder:text-white/10',
+                                className: 'w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-xs outline-none focus:border-dark-accent/40',
                                 placeholder: 'Type a message...',
                                 onKeyDown: (e) => {
                                     if (e.key === 'Enter' && e.target.value.trim() && dataConnRef.current) {
@@ -275,22 +291,22 @@
                         )
                     ),
 
-                    // Videos Section
+                    // Videos
                     React.createElement('div', { className: 'flex flex-col gap-6 items-center' },
                         React.createElement('div', { className: 'video-wrapper' },
                             React.createElement('div', { className: 'video-container' },
                                 React.createElement('video', { ref: remoteVideoRef, autoPlay: true, playsInline: true, className: status === 'Connected' ? 'opacity-100' : 'opacity-0' }),
                                 status !== 'Connected' && React.createElement('div', { className: 'absolute inset-0 flex flex-col items-center justify-center bg-[#080808] text-white/10' }, 
                                     isSearching ? React.createElement('div', { className: 'loader-ring mb-6' }) : null,
-                                    React.createElement('span', { className: 'text-[10px] uppercase font-black tracking-[0.4em]' }, isSearching ? 'Finding Match' : 'Ready to Connect')
+                                    React.createElement('span', { className: 'text-[10px] uppercase font-black tracking-[0.4em]' }, isSearching ? 'Finding Match' : 'Ready')
                                 ),
-                                React.createElement('div', { className: 'watermark' }, 'Stranger Stream')
+                                React.createElement('div', { className: 'watermark' }, 'Remote Stream')
                             )
                         ),
                         React.createElement('div', { className: 'video-wrapper' },
                             React.createElement('div', { className: 'video-container' },
                                 React.createElement('video', { ref: localVideoRef, autoPlay: true, playsInline: true, muted: true, className: 'scale-x-[-1]' }),
-                                React.createElement('div', { className: 'watermark' }, 'My Local Feed')
+                                React.createElement('div', { className: 'watermark' }, 'Your Feed')
                             )
                         )
                     ),
@@ -302,44 +318,18 @@
                                 onClick: findStranger, 
                                 disabled: isSearching,
                                 className: 'w-full py-7 btn-primary text-black font-black rounded-3xl uppercase tracking-widest text-[12px]' 
-                            }, isSearching ? 'Scanning...' : (status === 'Connected' ? 'Next Stranger' : 'Find Stranger')),
+                            }, isSearching ? 'Matching...' : 'Next Stranger'),
                             
                             React.createElement('div', { className: 'grid grid-cols-2 gap-4' },
                                 React.createElement('button', { onClick: () => toggleMedia('audio'), className: `control-btn h-20 rounded-2xl text-[9px] font-black uppercase tracking-widest ${audioOn ? 'active' : 'opacity-20'}` }, audioOn ? 'Mic On' : 'Muted'),
                                 React.createElement('button', { onClick: () => toggleMedia('video'), className: `control-btn h-20 rounded-2xl text-[9px] font-black uppercase tracking-widest ${videoOn ? 'active' : 'opacity-20'}` }, videoOn ? 'Cam On' : 'Off')
-                            ),
-                            React.createElement('button', { onClick: () => setIsChatOpen(true), className: 'lg:hidden w-full py-5 bg-white/5 border border-white/10 rounded-2xl text-[10px] font-black uppercase tracking-widest' }, 'Open Chat')
+                            )
                         ),
-                        React.createElement('div', { className: 'hidden lg:block p-8 glass-panel rounded-[2.5rem] text-center border-white/5 opacity-40' },
-                            React.createElement('p', { className: 'text-[9px] font-bold uppercase tracking-widest leading-relaxed' }, 'P2P Link: Active. All data stays in your browser.')
-                        )
-                    )
-                ),
-
-                // Mobile Chat Overlay
-                React.createElement('div', { className: `mobile-chat lg:hidden ${!isChatOpen ? 'chat-hidden' : ''}` },
-                    React.createElement('div', { className: 'flex flex-col h-full' },
-                        React.createElement('div', { className: 'p-8 flex justify-between items-center border-b border-white/5' },
-                            React.createElement('span', { className: 'text-xs font-black uppercase tracking-widest text-dark-accent' }, 'Messenger'),
-                            React.createElement('button', { onClick: () => setIsChatOpen(false), className: 'w-10 h-10 rounded-full bg-white/5 flex items-center justify-center font-bold' }, '×')
-                        ),
-                        React.createElement('div', { className: 'flex-1 p-8 space-y-4 overflow-y-auto' },
-                            messages.map((m, i) => React.createElement('div', { key: i, className: `flex ${m.own ? 'justify-end' : 'justify-start'}` },
-                                React.createElement('div', { className: `px-5 py-3 rounded-2xl text-sm ${m.own ? 'bg-dark-accent text-black font-bold' : 'bg-white/10 text-white'}` }, m.text)
-                            ))
-                        ),
-                        React.createElement('div', { className: 'p-8' },
-                             React.createElement('input', { 
-                                className: 'w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-5 text-sm outline-none',
-                                placeholder: 'Message...',
-                                onKeyDown: (e) => {
-                                    if (e.key === 'Enter' && e.target.value.trim() && dataConnRef.current) {
-                                        dataConnRef.current.send(e.target.value);
-                                        setMessages(p => [...p, { text: e.target.value, own: true }]);
-                                        e.target.value = '';
-                                    }
-                                }
-                            })
+                        React.createElement('div', { className: 'p-8 glass-panel rounded-[2.5rem] text-center border-white/5' },
+                            React.createElement('span', { className: 'text-[9px] font-black text-white/20 uppercase tracking-widest block mb-2' }, 'Matching For'),
+                            React.createElement('div', { className: 'flex flex-wrap justify-center gap-1' },
+                                interests.length > 0 ? interests.map((t, i) => React.createElement('span', { key: i, className: 'text-[10px] text-dark-accent font-bold px-2 py-0.5 bg-dark-accent/10 rounded' }, `#${t}`)) : React.createElement('span', { className: 'text-[10px] text-white/40' }, 'General / Random')
+                            )
                         )
                     )
                 )
