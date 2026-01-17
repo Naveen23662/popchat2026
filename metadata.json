@@ -1,6 +1,6 @@
 {
-  "name": "PopChat2026",
-  "description": "A lightweight random video chat app (Omegle-style) with WebRTC, DataChannel chat, snapshot/download, and a robust mobile-first responsive UI.",
+  "name": "PopChat P2P",
+  "description": "Safe, Ephemeral Peer-to-Peer Random Video Chat.",
   "requestFramePermissions": [
     "camera",
     "microphone"
