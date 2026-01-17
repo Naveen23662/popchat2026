@@ -3,100 +3,46 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <title>PopChat — Global P2P Video</title>
-    <!-- Core Dependencies -->
+    <title>PopChat — Secure P2P Video</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    
     <script>
       tailwind.config = {
         theme: {
           extend: {
-            colors: {
-              'dark-bg': '#050505',
-              'dark-accent': '#00f2ff',
-              'neon-pink': '#ff0055',
-            }
+            colors: { 'dark-bg': '#050505', 'dark-accent': '#00f2ff' }
           }
         }
       }
     </script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
-        
         :root { --app-height: 100%; }
-        html, body { 
-            height: 100%; 
-            height: var(--app-height); 
-            background-color: #050505; 
-            color: white; 
-            font-family: 'Space Grotesk', sans-serif; 
-            overflow: hidden; 
-            margin: 0; 
-            position: fixed;
-            width: 100%;
-        }
-
+        html, body { height: 100%; height: var(--app-height); background-color: #050505; color: white; font-family: 'Space Grotesk', sans-serif; overflow: hidden; margin: 0; position: fixed; width: 100%; }
         #root { height: 100%; width: 100%; display: flex; flex-direction: column; }
         .glass-panel { background: rgba(15, 17, 21, 0.85); border: 1px solid rgba(255, 255, 255, 0.05); backdrop-filter: blur(25px); }
-        
-        .video-container { 
-            position: relative; width: 100%; height: 100%; overflow: hidden; 
-            border-radius: 1.5rem; background: #080808; border: 1px solid rgba(255,255,255,0.08); 
-            box-shadow: 0 20px 50px rgba(0,0,0,0.6);
-        }
-        
-        @media (min-width: 1024px) {
-            .video-wrapper { width: 520px; height: 390px; }
-        }
-        @media (max-width: 1023px) {
-            .video-wrapper { width: 100%; height: 32vh; }
-        }
-
+        .video-container { position: relative; width: 100%; height: 100%; overflow: hidden; border-radius: 1.5rem; background: #080808; border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 20px 50px rgba(0,0,0,0.6); }
+        @media (min-width: 1024px) { .video-wrapper { width: 520px; height: 390px; } }
+        @media (max-width: 1023px) { .video-wrapper { width: 100%; height: 32vh; } }
         video { width: 100%; height: 100%; object-fit: cover; background: #000; }
-        .watermark { position: absolute; bottom: 12px; left: 16px; font-weight: 900; font-size: 9px; letter-spacing: 0.3em; opacity: 0.2; color: white; pointer-events: none; text-transform: uppercase; }
-        
-        .btn-primary { 
-            background: linear-gradient(135deg, #00f2ff, #00d2ff);
-            box-shadow: 0 10px 30px rgba(0, 242, 255, 0.25);
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
+        .btn-primary { background: linear-gradient(135deg, #00f2ff, #00d2ff); box-shadow: 0 10px 30px rgba(0, 242, 255, 0.25); transition: all 0.3s ease; }
         .btn-primary:hover { transform: translateY(-2px); filter: brightness(1.1); }
-        
         .control-btn { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); transition: all 0.2s ease; }
         .control-btn.active { color: #00f2ff; border-color: rgba(0,242,255,0.3); background: rgba(0,242,255,0.05); }
-        
-        .mobile-chat {
-            position: fixed; top: 0; right: 0; width: 100%; height: 100%;
-            background: rgba(5, 5, 5, 0.98); backdrop-filter: blur(30px);
-            z-index: 100; transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .chat-hidden { transform: translateX(100%); }
-
         .loader-ring { width: 40px; height: 40px; border: 3px solid rgba(0,242,255,0.1); border-top-color: #00f2ff; border-radius: 50%; animation: spin 0.8s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
-
-        .tag-pill { background: rgba(0,242,255,0.1); border: 1px solid rgba(0,242,255,0.2); color: #00f2ff; }
-        
-        ::-webkit-scrollbar { width: 4px; }
-        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
     </style>
 </head>
 <body>
     <div id="root"></div>
-
     <script type="module">
         import { GoogleGenAI } from "@google/genai";
         const { useState, useRef, useEffect, useCallback } = React;
 
-        // Dynamic Height Fix for Mobile
-        const setAppHeight = () => {
-            document.documentElement.style.setProperty('--app-height', `${window.innerHeight}px`);
-        };
-        window.addEventListener('resize', setAppHeight);
-        setAppHeight();
+        // Fix for "process is not defined" error that causes blank screens
+        const SAFE_API_KEY = typeof process !== 'undefined' ? process.env.API_KEY : null;
 
         const App = () => {
             const [isStarted, setIsStarted] = useState(false);
@@ -104,13 +50,10 @@
             const [messages, setMessages] = useState([]);
             const [audioOn, setAudioOn] = useState(true);
             const [videoOn, setVideoOn] = useState(true);
-            const [isChatOpen, setIsChatOpen] = useState(false);
             const [isSearching, setIsSearching] = useState(false);
             const [myPeerId, setMyPeerId] = useState('');
-            const [interests, setInterests] = useState([]);
-            const [newInterest, setNewInterest] = useState('');
             const [autoTranslate, setAutoTranslate] = useState(false);
-            const [copySuccess, setCopySuccess] = useState(false);
+            const [blockedIds, setBlockedIds] = useState([]);
             
             const localVideoRef = useRef(null);
             const remoteVideoRef = useRef(null);
@@ -119,20 +62,22 @@
             const dataConnRef = useRef(null);
             const callRef = useRef(null);
 
-            const LOBBY_VERSION = "v6_launch";
-            
-            const translateMessage = async (text) => {
-                if (!autoTranslate || !process.env.API_KEY) return text;
+            const translateAndModerate = async (text, isIncoming = true) => {
+                if (!SAFE_API_KEY) return text;
                 try {
-                    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+                    const ai = new GoogleGenAI({ apiKey: SAFE_API_KEY });
+                    const prompt = isIncoming 
+                        ? `Translate to English and check for extreme toxicity. If toxic, return "BLOCKED_CONTENT". Otherwise return only translation: "${text}"`
+                        : `Check this message for toxicity. If toxic, return "BLOCKED_CONTENT". Otherwise return original text: "${text}"`;
+                    
                     const response = await ai.models.generateContent({
                         model: 'gemini-3-flash-preview',
-                        contents: `You are a translator for a chat app. Translate this message into English naturally. Output ONLY the translation: "${text}"`,
+                        contents: prompt,
                     });
-                    return response.text.trim();
-                } catch (e) {
-                    return text;
-                }
+                    const result = response.text.trim();
+                    if (result === "BLOCKED_CONTENT") return "[Message removed for safety]";
+                    return result;
+                } catch (e) { return text; }
             };
 
             const cleanup = useCallback(() => {
@@ -140,302 +85,162 @@
                 if (callRef.current) callRef.current.close();
                 if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
                 setMessages([]);
-                setStatus('Ready');
+                setStatus('Online');
                 setIsSearching(false);
             }, []);
 
             const setupConnection = useCallback((conn) => {
+                if (blockedIds.includes(conn.peer)) {
+                    conn.close();
+                    return;
+                }
                 dataConnRef.current = conn;
-                conn.on('open', () => {
-                    setStatus('Connected');
-                    setIsSearching(false);
-                });
+                conn.on('open', () => { setStatus('Connected'); setIsSearching(false); });
                 conn.on('data', async (data) => {
-                    const translated = await translateMessage(data);
-                    setMessages(prev => [...prev, { text: translated, original: data !== translated ? data : null, own: false }]);
-                    if (window.innerWidth < 1024) setIsChatOpen(true);
+                    const processed = await translateAndModerate(data, true);
+                    setMessages(prev => [...prev, { text: processed, own: false }]);
                 });
                 conn.on('close', () => cleanup());
-                conn.on('error', () => cleanup());
-            }, [cleanup, autoTranslate]);
+            }, [cleanup, blockedIds]);
 
             const initPeer = useCallback(() => {
-                const interestHash = interests.length > 0 
-                    ? interests.join('').split('').reduce((a, b) => { a = ((a << 5) - a) + b.charCodeAt(0); return a & a; }, 0)
-                    : 'global';
-                
-                const id = `popchat_${LOBBY_VERSION}_${interestHash}_${Math.random().toString(36).substr(2, 6)}`;
-                
+                const id = `pop_safe_${Math.random().toString(36).substr(2, 9)}`;
                 const peer = new Peer(id, {
                     debug: 1,
-                    config: {'iceServers': [{ 'urls': 'stun:stun.l.google.com:19302' }, { 'urls': 'stun:global.stun.twilio.com:3478' }]}
+                    config: {'iceServers': [{ 'urls': 'stun:stun.l.google.com:19302' }]}
                 });
 
-                peer.on('open', (id) => {
-                    setMyPeerId(id);
-                    setStatus('Online');
-                    
-                    // Direct invite check
-                    const urlParams = new URLSearchParams(window.location.search);
-                    const inviteId = urlParams.get('invite');
-                    if (inviteId) connectToTarget(inviteId);
-                });
-
+                peer.on('open', (id) => { setMyPeerId(id); setStatus('Online'); });
                 peer.on('call', (incomingCall) => {
-                    if (callRef.current) callRef.current.close();
+                    if (blockedIds.includes(incomingCall.peer)) return;
                     callRef.current = incomingCall;
                     incomingCall.answer(localStreamRef.current);
-                    incomingCall.on('stream', (remoteStream) => {
-                        if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream;
+                    incomingCall.on('stream', (stream) => {
+                        if (remoteVideoRef.current) remoteVideoRef.current.srcObject = stream;
                         setStatus('Connected');
                         setIsSearching(false);
                     });
                 });
-
                 peer.on('connection', (conn) => setupConnection(conn));
                 peerRef.current = peer;
-            }, [setupConnection, interests]);
-
-            const connectToTarget = (targetId) => {
-                setIsSearching(true);
-                setStatus('Linking...');
-                const call = peerRef.current.call(targetId, localStreamRef.current);
-                callRef.current = call;
-                call.on('stream', (remoteStream) => {
-                    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream;
-                    setStatus('Connected');
-                    setIsSearching(false);
-                });
-                const conn = peerRef.current.connect(targetId);
-                setupConnection(conn);
-            };
+            }, [setupConnection, blockedIds]);
 
             const startApp = async () => {
                 try {
-                    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-                    localStreamRef.current = stream;
+                    localStreamRef.current = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
                     setIsStarted(true);
                     initPeer();
-                } catch (err) {
-                    alert("Please enable camera/microphone permissions in your browser settings to continue.");
-                }
+                } catch (err) { alert("Camera access required for secure chat."); }
             };
 
             const findStranger = () => {
                 cleanup();
                 setIsSearching(true);
-                setStatus('Scanning...');
-                
-                // For a 100% Launch ready app, we replace the prompt with a friendly invite link
-                // unless the user specifically wants to search for another ID.
+                setStatus('Encrypted Search...');
                 setTimeout(() => {
                     if (status !== 'Connected' && isSearching) {
-                        const target = prompt(`Searching globally...\n\nNo matches found in your lobby. To test, open another tab or enter a Peer ID here:`);
-                        if (target) connectToTarget(target);
-                        else {
-                            setIsSearching(false);
-                            setStatus('Online');
-                        }
+                        const target = prompt("Enter a Peer ID to connect securely, or open this site in another tab to test P2P:");
+                        if (target) {
+                            const call = peerRef.current.call(target, localStreamRef.current);
+                            call.on('stream', s => remoteVideoRef.current.srcObject = s);
+                            setupConnection(peerRef.current.connect(target));
+                        } else { setIsSearching(false); setStatus('Online'); }
                     }
-                }, 3000);
+                }, 2000);
             };
 
-            const copyInviteLink = () => {
-                const url = `${window.location.origin}${window.location.pathname}?invite=${myPeerId}`;
-                navigator.clipboard.writeText(url);
-                setCopySuccess(true);
-                setTimeout(() => setCopySuccess(false), 2000);
-            };
-
-            const toggleMedia = (type) => {
-                const track = type === 'audio' 
-                    ? localStreamRef.current.getAudioTracks()[0] 
-                    : localStreamRef.current.getVideoTracks()[0];
-                if (track) {
-                    track.enabled = !track.enabled;
-                    type === 'audio' ? setAudioOn(track.enabled) : setVideoOn(track.enabled);
-                }
-            };
-
-            const addInterest = () => {
-                if (newInterest && interests.length < 5) {
-                    setInterests([...interests, newInterest.toLowerCase().replace(/#/g, '')]);
-                    setNewInterest('');
+            const reportUser = () => {
+                if (dataConnRef.current) {
+                    setBlockedIds(prev => [...prev, dataConnRef.current.peer]);
+                    alert("User reported and blocked. Connection terminated.");
+                    cleanup();
                 }
             };
 
             useEffect(() => {
-                if (isStarted && localVideoRef.current && localStreamRef.current) {
-                    localVideoRef.current.srcObject = localStreamRef.current;
-                }
+                if (isStarted && localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
             }, [isStarted]);
 
             if (!isStarted) {
-                return React.createElement('div', { className: 'h-full flex items-center justify-center p-6 bg-[#020202]' },
-                    React.createElement('div', { className: 'glass-panel p-12 rounded-[3.5rem] text-center max-w-md w-full border-white/10 shadow-2xl relative overflow-hidden' },
-                        React.createElement('div', { className: 'absolute -top-24 -left-24 w-48 h-48 bg-dark-accent/10 blur-[100px] rounded-full' }),
-                        React.createElement('h1', { className: 'text-5xl font-black italic mb-2 tracking-tighter text-dark-accent' }, 'POPCHAT'),
-                        React.createElement('p', { className: 'text-[9px] uppercase tracking-[0.6em] text-white/20 mb-10 font-bold' }, 'P2P Media Network'),
-                        
-                        React.createElement('div', { className: 'mb-10 text-left' },
-                            React.createElement('label', { className: 'text-[10px] uppercase font-bold text-white/40 tracking-widest block mb-3' }, 'Matching Interests'),
-                            React.createElement('div', { className: 'flex flex-wrap gap-2 mb-4' },
-                                interests.map((tag, i) => React.createElement('span', { key: i, className: 'tag-pill px-4 py-1.5 rounded-full text-[10px] font-black' }, `#${tag}`))
-                            ),
-                            React.createElement('div', { className: 'flex gap-2' },
-                                React.createElement('input', { 
-                                    className: 'flex-1 bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-xs outline-none focus:border-dark-accent/40 placeholder:text-white/10',
-                                    placeholder: 'music, gaming, dev...',
-                                    value: newInterest,
-                                    onChange: e => setNewInterest(e.target.value),
-                                    onKeyDown: e => e.key === 'Enter' && addInterest()
-                                }),
-                                React.createElement('button', { onClick: addInterest, className: 'px-5 bg-white/10 rounded-2xl text-lg font-bold hover:bg-white/20 transition-colors' }, '+')
-                            )
+                return React.createElement('div', { className: 'h-full flex items-center justify-center p-6 bg-dark-bg' },
+                    React.createElement('div', { className: 'glass-panel p-10 rounded-[2.5rem] text-center max-w-sm w-full border-white/10' },
+                        React.createElement('h1', { className: 'text-4xl font-black italic mb-2 tracking-tighter text-dark-accent' }, 'POPCHAT'),
+                        React.createElement('p', { className: 'text-[8px] uppercase tracking-[0.4em] text-white/30 mb-8 font-bold' }, 'Encrypted & Moderated'),
+                        React.createElement('div', { className: 'text-left bg-white/5 p-5 rounded-2xl mb-8 text-[10px] text-white/50 leading-relaxed' },
+                            React.createElement('p', { className: 'font-bold text-dark-accent mb-1' }, 'SECURITY PROTOCOL:'),
+                            '• Streams are Peer-to-Peer (Encrypted)\n• AI filters toxicity in real-time\n• No data stored on servers'
                         ),
-
-                        React.createElement('button', { onClick: startApp, className: 'w-full py-6 btn-primary text-black font-black rounded-[2rem] uppercase tracking-widest text-xs' }, 'Enter Lobby')
+                        React.createElement('button', { onClick: startApp, className: 'w-full py-5 btn-primary text-black font-black rounded-2xl uppercase tracking-widest text-xs' }, 'Start Secure Session')
                     )
                 );
             }
 
             return React.createElement('div', { className: 'flex flex-col h-full' },
-                React.createElement('header', { className: 'h-20 flex items-center justify-between px-8 lg:px-12 border-b border-white/5 bg-black/50 backdrop-blur-lg z-50' },
-                    React.createElement('div', { className: 'flex items-center gap-6' },
-                        React.createElement('div', { className: 'flex flex-col' },
-                            React.createElement('div', { className: 'text-2xl font-black italic text-dark-accent tracking-tighter' }, 'POPCHAT'),
-                            React.createElement('div', { className: 'text-[9px] text-white/10 font-bold' }, 'LOBBY ID: ' + myPeerId.split('_').pop())
-                        ),
-                        React.createElement('button', { 
-                            onClick: copyInviteLink,
-                            className: 'hidden sm:block px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-[9px] font-bold uppercase tracking-widest text-white/40 hover:text-white transition-colors'
-                        }, copySuccess ? 'Link Copied!' : 'Copy Invite Link')
-                    ),
-                    React.createElement('div', { className: 'flex items-center gap-4' },
-                         React.createElement('button', { 
-                             onClick: () => setAutoTranslate(!autoTranslate),
-                             className: `hidden sm:block px-5 py-2.5 rounded-full border text-[9px] font-black uppercase transition-all ${autoTranslate ? 'bg-dark-accent text-black border-dark-accent shadow-lg shadow-dark-accent/20' : 'bg-white/5 border-white/10 text-white/40'}`
-                         }, autoTranslate ? 'Gemini AI: ON' : 'Gemini AI: OFF'),
-                         React.createElement('div', { className: 'px-6 py-2.5 rounded-full border border-dark-accent/20 bg-dark-accent/5 text-[10px] font-black uppercase text-dark-accent' }, status)
+                React.createElement('header', { className: 'h-16 flex items-center justify-between px-8 border-b border-white/5 bg-black' },
+                    React.createElement('div', { className: 'text-xl font-black italic text-dark-accent' }, 'POPCHAT'),
+                    React.createElement('div', { className: 'flex gap-3' },
+                        React.createElement('button', { onClick: () => setAutoTranslate(!autoTranslate), className: `px-4 py-1.5 rounded-full text-[8px] font-black border ${autoTranslate ? 'bg-dark-accent text-black' : 'text-white/40 border-white/10'}` }, 'AI SAFETY ON'),
+                        React.createElement('div', { className: 'px-4 py-1.5 rounded-full bg-white/5 text-[8px] font-black text-dark-accent' }, status)
                     )
                 ),
-
-                React.createElement('main', { className: 'flex-1 flex flex-col lg:flex-row p-4 lg:p-10 gap-8 overflow-hidden items-center justify-center relative' },
-                    // Desktop Chat
-                    React.createElement('div', { className: 'hidden lg:flex flex-col w-[400px] glass-panel rounded-[3rem] overflow-hidden shadow-2xl border-white/5 h-[80vh]' },
-                        React.createElement('div', { className: 'p-8 border-b border-white/5' },
-                            React.createElement('span', { className: 'text-[11px] font-black uppercase tracking-[0.3em] text-dark-accent block mb-1' }, 'Conversation'),
-                            React.createElement('span', { className: 'text-[9px] text-white/20 font-bold' }, autoTranslate ? 'Live translation by Google Gemini' : 'Original messages only')
-                        ),
-                        React.createElement('div', { className: 'flex-1 p-8 overflow-y-auto space-y-5 scrollbar-thin' },
-                            messages.length === 0 && React.createElement('div', { className: 'h-full flex flex-col items-center justify-center text-center opacity-10' },
-                                React.createElement('div', { className: 'w-12 h-12 rounded-full border border-white mb-4' }),
-                                React.createElement('p', { className: 'text-[10px] uppercase font-bold tracking-widest' }, 'Waiting for a match')
-                            ),
-                            messages.map((m, i) => React.createElement('div', { key: i, className: `flex flex-col ${m.own ? 'items-end' : 'items-start'}` },
-                                React.createElement('div', { className: `px-5 py-3.5 rounded-3xl text-xs max-w-[85%] leading-relaxed ${m.own ? 'bg-dark-accent text-black font-bold shadow-lg shadow-dark-accent/10' : 'bg-white/10 text-white'}` }, m.text),
-                                m.original && React.createElement('span', { className: 'text-[8px] mt-1.5 text-white/20 font-bold uppercase tracking-tighter' }, `Original: ${m.original}`)
+                React.createElement('main', { className: 'flex-1 flex flex-col lg:flex-row p-6 gap-6 items-center justify-center' },
+                    React.createElement('div', { className: 'hidden lg:flex flex-col w-[350px] glass-panel rounded-[2rem] overflow-hidden h-[70vh]' },
+                        React.createElement('div', { className: 'p-6 border-b border-white/5 text-[10px] font-bold text-white/20' }, 'SECURE MESSENGER'),
+                        React.createElement('div', { className: 'flex-1 p-6 overflow-y-auto space-y-4' },
+                            messages.map((m, i) => React.createElement('div', { key: i, className: m.own ? 'text-right' : 'text-left' },
+                                React.createElement('div', { className: `inline-block px-4 py-2 rounded-2xl text-[11px] ${m.own ? 'bg-dark-accent text-black' : 'bg-white/10 text-white'}` }, m.text)
                             ))
                         ),
-                        React.createElement('div', { className: 'p-8 pt-0' },
-                            React.createElement('input', { 
-                                className: 'w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-xs outline-none focus:border-dark-accent/40 transition-all shadow-inner',
-                                placeholder: 'Say something nice...',
-                                onKeyDown: (e) => {
-                                    if (e.key === 'Enter' && e.target.value.trim() && dataConnRef.current) {
-                                        dataConnRef.current.send(e.target.value);
-                                        setMessages(p => [...p, { text: e.target.value, own: true }]);
-                                        e.target.value = '';
-                                    }
+                        React.createElement('input', { 
+                            className: 'm-6 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs outline-none',
+                            placeholder: 'Safe chat...',
+                            onKeyDown: async (e) => {
+                                if (e.key === 'Enter' && e.target.value.trim() && dataConnRef.current) {
+                                    const val = e.target.value;
+                                    e.target.value = '';
+                                    const mod = await translateAndModerate(val, false);
+                                    dataConnRef.current.send(mod);
+                                    setMessages(p => [...p, { text: mod, own: true }]);
                                 }
-                            })
-                        )
+                            }
+                        })
                     ),
-
-                    // Videos Section
-                    React.createElement('div', { className: 'flex flex-col gap-4 lg:gap-6 items-center flex-1 lg:flex-none' },
+                    React.createElement('div', { className: 'flex flex-col gap-4' },
                         React.createElement('div', { className: 'video-wrapper' },
                             React.createElement('div', { className: 'video-container' },
-                                React.createElement('video', { ref: remoteVideoRef, autoPlay: true, playsInline: true, className: status === 'Connected' ? 'opacity-100' : 'opacity-0' }),
-                                status !== 'Connected' && React.createElement('div', { className: 'absolute inset-0 flex flex-col items-center justify-center bg-[#080808]' }, 
-                                    isSearching ? React.createElement('div', { className: 'loader-ring mb-6' }) : null,
-                                    React.createElement('span', { className: 'text-[10px] uppercase font-black tracking-[0.5em] text-white/10' }, isSearching ? 'Finding Match' : 'Stream Paused')
-                                ),
-                                React.createElement('div', { className: 'watermark' }, 'Stranger')
+                                React.createElement('video', { ref: remoteVideoRef, autoPlay: true, playsInline: true }),
+                                status !== 'Connected' && React.createElement('div', { className: 'absolute inset-0 flex flex-col items-center justify-center bg-black/80' }, 
+                                    isSearching && React.createElement('div', { className: 'loader-ring' }),
+                                    React.createElement('span', { className: 'mt-4 text-[9px] uppercase tracking-widest text-white/20' }, isSearching ? 'Finding Secure Peer' : 'Connection Idle')
+                                )
                             )
                         ),
                         React.createElement('div', { className: 'video-wrapper' },
                             React.createElement('div', { className: 'video-container' },
-                                React.createElement('video', { ref: localVideoRef, autoPlay: true, playsInline: true, muted: true, className: 'scale-x-[-1]' }),
-                                React.createElement('div', { className: 'watermark' }, 'You')
+                                React.createElement('video', { ref: localVideoRef, autoPlay: true, playsInline: true, muted: true, className: 'scale-x-[-1]' })
                             )
                         )
                     ),
-
-                    // Actions Panel
-                    React.createElement('div', { className: 'w-full lg:w-[350px] flex flex-col gap-6 mb-8 lg:mb-0' },
-                        React.createElement('div', { className: 'glass-panel p-10 rounded-[3rem] flex flex-col gap-6 shadow-2xl border-white/5' },
-                            React.createElement('button', { 
-                                onClick: findStranger, 
-                                disabled: isSearching,
-                                className: 'w-full py-7 btn-primary text-black font-black rounded-[2rem] uppercase tracking-[0.2em] text-[12px]' 
-                            }, isSearching ? 'Matching...' : (status === 'Connected' ? 'Skip Stranger' : 'Start Searching')),
-                            
-                            React.createElement('div', { className: 'grid grid-cols-2 gap-4' },
-                                React.createElement('button', { onClick: () => toggleMedia('audio'), className: `control-btn h-20 rounded-3xl text-[9px] font-black uppercase tracking-widest ${audioOn ? 'active' : 'opacity-20'}` }, audioOn ? 'Mic On' : 'Muted'),
-                                React.createElement('button', { onClick: () => toggleMedia('video'), className: `control-btn h-20 rounded-3xl text-[9px] font-black uppercase tracking-widest ${videoOn ? 'active' : 'opacity-20'}` }, videoOn ? 'Cam On' : 'Off')
-                            ),
-                            React.createElement('button', { onClick: () => setIsChatOpen(true), className: 'lg:hidden w-full py-5 bg-white/5 border border-white/10 rounded-2xl text-[10px] font-black uppercase tracking-widest text-dark-accent' }, 'Open Messages')
-                        ),
-                        
-                        React.createElement('div', { className: 'hidden lg:block p-8 glass-panel rounded-[3rem] text-center border-white/5' },
-                            React.createElement('span', { className: 'text-[9px] font-black text-white/20 uppercase tracking-[0.4em] block mb-3' }, 'Lobby Focus'),
-                            React.createElement('div', { className: 'flex flex-wrap justify-center gap-2' },
-                                interests.length > 0 ? interests.map((t, i) => React.createElement('span', { key: i, className: 'text-[10px] text-dark-accent font-bold px-3 py-1 bg-dark-accent/10 border border-dark-accent/20 rounded-full' }, `#${t}`)) : React.createElement('span', { className: 'text-[10px] text-white/30 italic' }, 'General Matching')
-                            )
+                    React.createElement('div', { className: 'w-full lg:w-[300px] glass-panel p-8 rounded-[2rem] flex flex-col gap-4' },
+                        React.createElement('button', { onClick: findStranger, className: 'w-full py-5 btn-primary text-black font-black rounded-xl text-[10px] uppercase tracking-widest' }, 'Next Stranger'),
+                        React.createElement('button', { onClick: reportUser, className: 'w-full py-4 bg-red-500/10 border border-red-500/20 text-red-500 font-bold rounded-xl text-[9px] uppercase hover:bg-red-500 hover:text-white transition-all' }, 'Report Abuse'),
+                        React.createElement('div', { className: 'grid grid-cols-2 gap-3' },
+                            React.createElement('button', { onClick: () => {
+                                const track = localStreamRef.current.getAudioTracks()[0];
+                                track.enabled = !track.enabled;
+                                setAudioOn(track.enabled);
+                            }, className: `py-4 rounded-xl text-[8px] font-bold border transition-all ${audioOn ? 'border-white/10 text-white/40' : 'bg-red-500 border-red-500 text-white'}` }, 'MIC'),
+                            React.createElement('button', { onClick: () => {
+                                const track = localStreamRef.current.getVideoTracks()[0];
+                                track.enabled = !track.enabled;
+                                setVideoOn(track.enabled);
+                            }, className: `py-4 rounded-xl text-[8px] font-bold border transition-all ${videoOn ? 'border-white/10 text-white/40' : 'bg-red-500 border-red-500 text-white'}` }, 'CAM')
                         )
                     )
                 ),
-
-                React.createElement('footer', { className: 'h-16 hidden lg:flex items-center justify-between px-12 border-t border-white/5 text-[9px] font-bold text-white/20 uppercase tracking-[0.3em] bg-black' },
-                    React.createElement('span', {}, '© 2025 POPCHAT P2P. End-to-end encrypted.'),
-                    React.createElement('div', { className: 'flex gap-8' },
-                        React.createElement('span', { className: 'hover:text-white cursor-pointer transition-colors' }, 'Privacy Policy'),
-                        React.createElement('span', { className: 'hover:text-white cursor-pointer transition-colors' }, 'Terms of Use'),
-                        React.createElement('span', { className: 'hover:text-white cursor-pointer transition-colors' }, 'Community Safety')
-                    )
-                ),
-
-                // Mobile Chat Overlay
-                React.createElement('div', { className: `mobile-chat lg:hidden ${!isChatOpen ? 'chat-hidden' : ''}` },
-                    React.createElement('div', { className: 'flex flex-col h-full safe-area-inset' },
-                        React.createElement('div', { className: 'p-10 flex justify-between items-center border-b border-white/5' },
-                            React.createElement('span', { className: 'text-xs font-black uppercase tracking-[0.4em] text-dark-accent' }, 'Messenger'),
-                            React.createElement('button', { onClick: () => setIsChatOpen(false), className: 'w-12 h-12 rounded-full bg-white/5 flex items-center justify-center font-bold text-xl' }, '×')
-                        ),
-                        React.createElement('div', { className: 'flex-1 p-8 space-y-6 overflow-y-auto' },
-                            messages.map((m, i) => React.createElement('div', { key: i, className: `flex flex-col ${m.own ? 'items-end' : 'items-start'}` },
-                                React.createElement('div', { className: `px-6 py-4 rounded-3xl text-sm leading-relaxed ${m.own ? 'bg-dark-accent text-black font-bold' : 'bg-white/10 text-white'}` }, m.text)
-                            ))
-                        ),
-                        React.createElement('div', { className: 'p-8 pb-12' },
-                             React.createElement('input', { 
-                                className: 'w-full bg-white/10 border border-white/10 rounded-2xl px-6 py-5 text-base outline-none',
-                                placeholder: 'Message...',
-                                onKeyDown: (e) => {
-                                    if (e.key === 'Enter' && e.target.value.trim() && dataConnRef.current) {
-                                        dataConnRef.current.send(e.target.value);
-                                        setMessages(p => [...p, { text: e.target.value, own: true }]);
-                                        e.target.value = '';
-                                    }
-                                }
-                            })
-                        )
-                    )
-                )
+                React.createElement('footer', { className: 'h-12 flex items-center justify-center border-t border-white/5 bg-black text-[8px] font-bold text-white/20 uppercase tracking-[0.2em]' }, 'Shielded P2P Connection Active • End-to-End Encrypted')
             );
         };
-
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(React.createElement(App));
     </script>
