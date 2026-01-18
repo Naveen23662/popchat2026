@@ -141,7 +141,9 @@
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
-                { urls: 'stun:stun2.l.google.com:19302' }
+                { urls: 'stun:stun2.l.google.com:19302' },
+                { urls: 'stun:stun3.l.google.com:19302' },
+                { urls: 'stun:stun4.l.google.com:19302' }
             ]
         };
 
@@ -192,6 +194,7 @@
             };
 
             const cleanup = useCallback(() => {
+                console.log("Cleanup: Closing connections...");
                 if (pcRef.current) {
                     pcRef.current.close();
                     pcRef.current = null;
@@ -206,15 +209,20 @@
 
             const setupDataChannel = (channel) => {
                 channel.onopen = () => {
+                    console.log("Data channel open.");
                     setStatus('CONNECTED');
                     setIsSearching(false);
                 };
                 channel.onmessage = (e) => setMessages(prev => [...prev, { text: e.data, own: false }]);
-                channel.onclose = cleanup;
+                channel.onclose = () => {
+                  console.log("Data channel closed.");
+                  cleanup();
+                };
                 dataChannelRef.current = channel;
             };
 
             const createPeerConnection = useCallback(() => {
+                console.log("Creating RTCPeerConnection...");
                 const pc = new RTCPeerConnection(RTC_CONFIG);
                 
                 if (localStreamRef.current) {
@@ -230,6 +238,7 @@
                 };
 
                 pc.ontrack = (event) => {
+                    console.log("Received remote track.");
                     if (remoteVideoRef.current) {
                         remoteVideoRef.current.srcObject = event.streams[0];
                     }
@@ -247,24 +256,34 @@
             }, [cleanup]);
 
             const initSocket = useCallback(() => {
-                // FIXED: Use WSS if on HTTPS, WS if on HTTP
                 const isSecure = window.location.protocol === 'https:';
                 const protocol = isSecure ? 'wss:' : 'ws:';
                 
-                // If on localhost development, we likely need port 8443
-                // If on production host (onrender.com, etc), the backend is likely on the same host/port 443
-                const host = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-                    ? 'localhost:8443'
-                    : window.location.host;
+                // DYNAMIC HOST RESOLUTION
+                // In many hosting environments (Render, Heroku), the WebSocket server 
+                // is on the same host/port. If local, we default to 8443.
+                let host = window.location.host;
+                if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+                    host = 'localhost:8443';
+                }
                 
                 const socketUrl = `${protocol}//${host}`;
-                console.log("Connecting to Signaling Server:", socketUrl);
+                console.log("Connecting to:", socketUrl);
                 
                 const ws = new WebSocket(socketUrl);
                 
-                ws.onopen = () => setStatus('IDLE');
-                ws.onerror = () => setStatus('SIGNAL ERROR');
+                ws.onopen = () => {
+                    console.log("Signaling Server Connected.");
+                    setStatus('IDLE');
+                };
+
+                ws.onerror = (e) => {
+                    console.error("Signaling error:", e);
+                    setStatus('SIGNAL ERROR');
+                };
+
                 ws.onclose = () => {
+                    console.warn("Signaling connection closed.");
                     if (isStarted) {
                         setStatus('RECONNECTING...');
                         setTimeout(initSocket, 3000);
@@ -273,17 +292,20 @@
                 
                 ws.onmessage = async (event) => {
                     const data = JSON.parse(event.data);
+                    console.log("Received Signal:", data.type);
                     
                     switch (data.type) {
                         case 'match':
                             const pc = createPeerConnection();
                             if (data.isInitiator) {
+                                console.log("I am the initiator.");
                                 const dc = pc.createDataChannel('chat');
                                 setupDataChannel(dc);
                                 const offer = await pc.createOffer();
                                 await pc.setLocalDescription(offer);
                                 sendSignal({ type: 'offer', sdp: offer });
                             } else {
+                                console.log("I am the receiver.");
                                 pc.ondatachannel = (e) => setupDataChannel(e.channel);
                             }
                             break;
@@ -295,6 +317,7 @@
                                 await pcRef.current.setLocalDescription(answer);
                                 sendSignal({ type: 'answer', sdp: answer });
                                 
+                                // Process buffered ICE
                                 while (iceCandidateQueue.current.length > 0) {
                                     const cand = iceCandidateQueue.current.shift();
                                     await pcRef.current.addIceCandidate(cand).catch(console.warn);
@@ -322,6 +345,7 @@
                             break;
                         
                         case 'stranger-disconnected':
+                            console.log("Stranger left.");
                             cleanup();
                             break;
                     }
@@ -341,7 +365,7 @@
                     localStreamRef.current = stream;
                     setIsStarted(true);
                 } catch (err) { 
-                    alert("Media access required."); 
+                    alert("PopChat requires camera and microphone permissions to work."); 
                 }
             };
 
@@ -363,7 +387,7 @@
                             React.createElement('div', { className: 'w-4 h-4 bg-cyber-cyan rounded-full pulse shadow-[0_0_20px_#00f2ff]' })
                         ),
                         React.createElement('h1', { className: 'text-5xl font-black italic tracking-tighter mb-4' }, 'POPCHAT'),
-                        React.createElement('p', { className: 'text-[10px] uppercase font-bold text-white/30 tracking-[0.3em] mb-12' }, 'WebSocket Signaling Protocol v2.1'),
+                        React.createElement('p', { className: 'text-[10px] uppercase font-bold text-white/30 tracking-[0.3em] mb-12' }, 'WebSocket Signaling Protocol v2.5'),
                         React.createElement('button', { onClick: startApp, className: 'w-full py-6 btn-glow text-black font-extrabold rounded-2xl text-[12px] uppercase tracking-widest' }, 'JOIN MATCHING QUEUE')
                     )
                 );
